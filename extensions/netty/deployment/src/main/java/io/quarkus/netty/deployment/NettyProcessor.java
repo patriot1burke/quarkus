@@ -24,6 +24,7 @@ import javax.inject.Inject;
 import org.jboss.logging.Logger;
 
 import io.netty.channel.EventLoopGroup;
+import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.RuntimeBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -33,6 +34,7 @@ import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.substrate.SubstrateConfigBuildItem;
 import io.quarkus.netty.BossGroup;
 import io.quarkus.netty.runtime.NettyTemplate;
+import io.quarkus.runtime.RuntimeValue;
 
 class NettyProcessor {
 
@@ -69,9 +71,15 @@ class NettyProcessor {
     }
 
     @BuildStep
-    @Record(ExecutionTime.STATIC_INIT)
+    AdditionalBeanBuildItem registerBean() {
+        return AdditionalBeanBuildItem.unremovableOf(EventLoopGroup.class);
+    }
+
+    //@BuildStep
+    //@Record(ExecutionTime.STATIC_INIT)
     void createExecutors(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
             NettyTemplate template) {
+        log.info("NETTY STATIC INIT");
         //TODO: configuration
         Supplier<Object> boss = template.createEventLoop(1);
         Supplier<Object> worker = template.createEventLoop(0);
@@ -80,11 +88,42 @@ class NettyProcessor {
                 .setSupplier(boss)
                 .setScope(ApplicationScoped.class)
                 .addQualifier(BossGroup.class)
+                .setRemovable(false)
                 .build());
         runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
                 .setSupplier(worker)
                 .setScope(ApplicationScoped.class)
+                .setRemovable(false)
                 .build());
+    }
+
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    NettyBossBuildItem createBoss(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
+            NettyTemplate template) {
+        RuntimeValue<EventLoopGroup> boss = template.createEventLoopValue(1);
+        runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
+                .setRuntimeValue(boss)
+                .setScope(ApplicationScoped.class)
+                .addQualifier(BossGroup.class)
+                .setRemovable(false)
+                .build());
+        return new NettyBossBuildItem(boss);
+
+    }
+
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    NettyWorkerBuildItem createWorker(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
+            NettyTemplate template) {
+        RuntimeValue<EventLoopGroup> worker = template.createEventLoopValue(0);
+        runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
+                .setRuntimeValue(worker)
+                .setScope(ApplicationScoped.class)
+                .setRemovable(false)
+                .build());
+        return new NettyWorkerBuildItem(worker);
+
     }
 
 }
