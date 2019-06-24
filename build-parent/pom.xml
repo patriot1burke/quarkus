@@ -178,6 +178,16 @@
                 <artifactId>quarkus-netty-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-netty-http</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-netty-http-deployment</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- Quarkus extensions -->
 

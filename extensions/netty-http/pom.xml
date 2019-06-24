@@ -11,8 +11,8 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>quarkus-netty-parent</artifactId>
-    <name>Quarkus - Netty</name>
+    <artifactId>quarkus-netty-http-parent</artifactId>
+    <name>Quarkus - Netty Http</name>
     <packaging>pom</packaging>
     <modules>
         <module>runtime</module>

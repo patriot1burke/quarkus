@@ -54,11 +54,12 @@ class NettyProcessor {
 
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
-    void createExecutors(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
+    NettyExecutorsBuildItem createExecutors(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
             NettyTemplate template) {
+        log.info("****** create executors");
         //TODO: configuration
-        Supplier<Object> boss = template.createEventLoop(1);
-        Supplier<Object> worker = template.createEventLoop(0);
+        Supplier<Object> boss = template.createIoLoop(1);
+        Supplier<Object> worker = template.createEventExecutor(0);
 
         runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
                 .setSupplier(boss)
@@ -69,6 +70,7 @@ class NettyProcessor {
                 .setSupplier(worker)
                 .setScope(ApplicationScoped.class)
                 .build());
+        return new NettyExecutorsBuildItem(worker, boss);
     }
 
 }
