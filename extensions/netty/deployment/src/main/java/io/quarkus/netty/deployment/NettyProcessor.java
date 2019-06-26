@@ -2,20 +2,16 @@ package io.quarkus.netty.deployment;
 
 import java.util.function.Supplier;
 
-import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 
 import org.jboss.logging.Logger;
 
-import io.netty.channel.EventLoopGroup;
-import io.quarkus.arc.deployment.RuntimeBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.substrate.SubstrateConfigBuildItem;
-import io.quarkus.netty.BossGroup;
 import io.quarkus.netty.runtime.NettyTemplate;
 
 class NettyProcessor {
@@ -54,23 +50,13 @@ class NettyProcessor {
 
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
-    NettyExecutorsBuildItem createExecutors(BuildProducer<RuntimeBeanBuildItem> runtimeBeanBuildItemBuildProducer,
-            NettyTemplate template) {
+    NettyEventLoopsBuildItem createExecutors(NettyTemplate template) {
         log.info("****** create executors");
         //TODO: configuration
-        Supplier<Object> boss = template.createIoLoop(1);
-        Supplier<Object> worker = template.createEventExecutor(0);
+        Supplier<Object> boss = template.createIoLoop(5);
+        Supplier<Object> worker = template.createEventExecutor(5);
 
-        runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
-                .setSupplier(boss)
-                .setScope(ApplicationScoped.class)
-                .addQualifier(BossGroup.class)
-                .build());
-        runtimeBeanBuildItemBuildProducer.produce(RuntimeBeanBuildItem.builder(EventLoopGroup.class)
-                .setSupplier(worker)
-                .setScope(ApplicationScoped.class)
-                .build());
-        return new NettyExecutorsBuildItem(worker, boss);
+        return new NettyEventLoopsBuildItem(worker, boss);
     }
 
 }

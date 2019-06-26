@@ -53,6 +53,7 @@
         <module>kogito</module>
         <module>azure-functions-resteasy</module>
         <module>netty</module>
+        <module>resteasy-netty</module>
     </modules>
 
     <build>

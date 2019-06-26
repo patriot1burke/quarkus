@@ -4,11 +4,11 @@ import java.util.function.Supplier;
 
 import io.quarkus.builder.item.SimpleBuildItem;
 
-public final class NettyExecutorsBuildItem extends SimpleBuildItem {
+public final class NettyEventLoopsBuildItem extends SimpleBuildItem {
     private Supplier<Object> executor;
     private Supplier<Object> io;
 
-    public NettyExecutorsBuildItem(Supplier<Object> executor, Supplier<Object> io) {
+    public NettyEventLoopsBuildItem(Supplier<Object> executor, Supplier<Object> io) {
         this.executor = executor;
         this.io = io;
     }

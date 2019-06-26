@@ -1,16 +1,17 @@
 package io.quarkus.netty.http.deployment;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.jboss.logging.Logger;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
-import io.quarkus.netty.deployment.NettyExecutorsBuildItem;
+import io.quarkus.netty.deployment.NettyEventLoopsBuildItem;
 import io.quarkus.netty.http.runtime.NettyHttpTemplate;
 import io.quarkus.runtime.RuntimeValue;
 
@@ -19,14 +20,25 @@ public class NettyHttpProcessor {
 
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
-    public void setupServer(NettyExecutorsBuildItem executors,
-            List<HttpChannelInitializerBuildItem> initializers,
+    public void setupServer(Optional<VirtualHttpBuildItem> isVirtual, NettyEventLoopsBuildItem executors,
+            List<HttpPipelineInitializerBuildItem> initializers,
             NettyHttpTemplate http) {
-        log.info("********* NETTY HTTP PROCESSOR ");
-        List<RuntimeValue<ChannelInitializer<Channel>>> cis = initializers.stream().map(bi -> bi.getInitializer())
+        log.info("---- NettyHttpProcessor");
+        if (isVirtual.isPresent()) {
+            log.info("---- NettyHttpProcessor virtual connection requested.");
+            return;
+        }
+
+        log.info("---- NettyHttpProcessor - start HTTP");
+        List<RuntimeValue<Consumer<ChannelPipeline>>> cis = initializers.stream().map(bi -> bi.getInitializer())
                 .collect(Collectors.toList());
+        log.info("---- NettyHttpProcessor - num pipelines: " + cis.size());
 
-        http.start(cis, executors.getExecutor(), executors.getIo());
+        if (cis.size() == 0) {
+            log.info("---- NettyHttpProcessor - No pipelines.  Not initializing");
+            return;
+        }
 
+        http.start(cis, executors.getIo());
     }
 }

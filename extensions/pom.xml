@@ -59,6 +59,7 @@
 
         <!-- Composed -->
         <module>azure-functions-resteasy</module>
+        <module>resteasy-netty</module>
 
 
         <!-- Data access and validation -->
