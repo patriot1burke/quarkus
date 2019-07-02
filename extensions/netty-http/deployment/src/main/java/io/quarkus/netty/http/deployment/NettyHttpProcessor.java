@@ -20,25 +20,44 @@ public class NettyHttpProcessor {
 
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
-    public void setupServer(Optional<VirtualHttpBuildItem> isVirtual, NettyEventLoopsBuildItem executors,
+    public void setupServer(Optional<SuppressHttpSocketBuildItem> suppress, NettyEventLoopsBuildItem executors,
             List<HttpPipelineInitializerBuildItem> initializers,
             NettyHttpTemplate http) {
-        log.info("---- NettyHttpProcessor");
-        if (isVirtual.isPresent()) {
-            log.info("---- NettyHttpProcessor virtual connection requested.");
+        if (suppress.isPresent()) {
             return;
         }
-
-        log.info("---- NettyHttpProcessor - start HTTP");
         List<RuntimeValue<Consumer<ChannelPipeline>>> cis = initializers.stream().map(bi -> bi.getInitializer())
                 .collect(Collectors.toList());
-        log.info("---- NettyHttpProcessor - num pipelines: " + cis.size());
+        log.info("---- setupServer - num pipelines: " + cis.size());
 
         if (cis.size() == 0) {
-            log.info("---- NettyHttpProcessor - No pipelines.  Not initializing");
+            log.info("---- setupServer - No pipelines.  Not initializing");
+            return;
+        }
+        http.start(cis, executors.getIo());
+    }
+
+    @BuildStep
+    @Record(ExecutionTime.RUNTIME_INIT)
+    public void setupVirtual(Optional<RequireVirtualHttpBuildItem> isVirtual, NettyEventLoopsBuildItem executors,
+            List<HttpPipelineInitializerBuildItem> initializers,
+            NettyHttpTemplate http) {
+        if (!isVirtual.isPresent()) {
+            // need to have isVirtual as Optional or you get error:
+            //    No producers for required item
+            return;
+        }
+        List<RuntimeValue<Consumer<ChannelPipeline>>> cis = initializers.stream().map(bi -> bi.getInitializer())
+                .collect(Collectors.toList());
+        log.info("---- setupVirtual - num pipelines: " + cis.size());
+
+        if (cis.size() == 0) {
+            log.info("---- setupVirtual - No pipelines.  Not initializing");
             return;
         }
 
-        http.start(cis, executors.getIo());
+        log.info("---- virtual connection requested.");
+        http.startVirtual(cis, executors.getIo());
     }
+
 }

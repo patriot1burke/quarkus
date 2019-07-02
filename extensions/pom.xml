@@ -58,8 +58,6 @@
         <module>mailer</module>
 
         <!-- Composed -->
-        <module>azure-functions-resteasy</module>
-        <module>resteasy-netty</module>
 
 
         <!-- Data access and validation -->
@@ -91,6 +89,9 @@
         <!-- Integrations -->
         <module>amazon-lambda</module>
         <module>amazon-lambda-resteasy</module>
+        <module>azure-functions-resteasy</module>
+        <module>resteasy-netty</module>
+        <module>azure-functions-http</module>
 
         <!-- Camel -->
         <module>camel</module>

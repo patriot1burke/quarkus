@@ -181,7 +181,7 @@ class InfinispanClientProcessor {
             log.debugf("Applying micro profile configuration: %s", conf);
         }
         int maxEntries = conf.nearCacheMaxEntries;
-        // Only write the entries if it is a valid number and it isn't already configured
+        // Only sendMessage the entries if it is a valid number and it isn't already configured
         if (maxEntries > 0 && !properties.containsKey(ConfigurationProperties.NEAR_CACHE_MODE)) {
             // This is already empty so no need for putIfAbsent
             properties.put(ConfigurationProperties.NEAR_CACHE_MODE, NearCacheMode.INVALIDATED.toString());

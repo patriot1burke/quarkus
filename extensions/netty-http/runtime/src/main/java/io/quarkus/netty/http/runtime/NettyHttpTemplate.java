@@ -19,7 +19,6 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
@@ -27,13 +26,17 @@ import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
+import io.quarkus.netty.runtime.virtual.VirtualAddress;
+import io.quarkus.netty.runtime.virtual.VirtualChannel;
+import io.quarkus.netty.runtime.virtual.VirtualServerChannel;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Template;
 
 @Template
 public class NettyHttpTemplate {
     private static final Logger log = Logger.getLogger(NettyHttpTemplate.class.getName());
-    protected static ServerBootstrap bootstrap = new ServerBootstrap();
+    protected static ServerBootstrap bootstrap;
+    protected static ServerBootstrap virtualBootstrap;
     protected static String hostname = null;
     protected static int configuredPort = 8080;
     public static int runtimePort = -1;
@@ -49,10 +52,43 @@ public class NettyHttpTemplate {
     private static int idleTimeout = -1;
     private static Map<ChannelOption, Object> channelOptions = Collections.emptyMap();
 
-    public void start(List<RuntimeValue<Consumer<ChannelPipeline>>> initializers, Supplier<Object> io) {
-        log.info("********* NettyHttpTemplate ioWorkers: " + ioWorkerCount);
-        EventLoopGroup ioLoop = new NioEventLoopGroup(ioWorkerCount);//(EventLoopGroup) io.get();
+    public static VirtualAddress VIRTUAL_HTTP = new VirtualAddress("netty-virtual-http");
 
+    public void startVirtual(List<RuntimeValue<Consumer<ChannelPipeline>>> initializers, Supplier<Object> io) {
+        EventLoopGroup ioLoop = (EventLoopGroup) io.get();
+        final List<Consumer<ChannelPipeline>> list = initializers.stream().map(rv -> rv.getValue())
+                .collect(Collectors.toList());
+        virtualBootstrap = new ServerBootstrap();
+        virtualBootstrap.group(ioLoop)
+                .channel(VirtualServerChannel.class)
+                .handler(new ChannelInitializer<VirtualServerChannel>() {
+                    @Override
+                    public void initChannel(VirtualServerChannel ch) throws Exception {
+                        //ch.pipeline().addLast(new LoggingHandler(LogLevel.INFO));
+                    }
+                })
+                .childHandler(new ChannelInitializer<VirtualChannel>() {
+                    @Override
+                    public void initChannel(VirtualChannel ch) throws Exception {
+                        ChannelPipeline channelPipeline = ch.pipeline();
+                        for (Consumer<ChannelPipeline> ci : list) {
+                            ci.accept(channelPipeline);
+                        }
+                    }
+                });
+
+        // Start the server.
+        try {
+            virtualBootstrap.bind(VIRTUAL_HTTP).sync();
+        } catch (InterruptedException e) {
+            throw new RuntimeException("failed to bind virtual http");
+        }
+    }
+
+    public void start(List<RuntimeValue<Consumer<ChannelPipeline>>> initializers, Supplier<Object> io) {
+        EventLoopGroup ioLoop = (EventLoopGroup) io.get();
+
+        bootstrap = new ServerBootstrap();
         bootstrap.group(ioLoop)
                 .channel(NioServerSocketChannel.class)
                 .childHandler(createChannelInitializer(initializers))
@@ -114,5 +150,4 @@ public class NettyHttpTemplate {
             ci.accept(channelPipeline);
         }
     }
-
 }
