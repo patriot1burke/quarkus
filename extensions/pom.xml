@@ -91,6 +91,7 @@
         <module>amazon-lambda-resteasy</module>
         <module>amazon-dynamodb</module>
 
+        <module>azure-functions-http</module>
         <!-- Camel -->
         <module>camel</module>
 

@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -107,6 +108,7 @@ import io.quarkus.undertow.runtime.UndertowDeploymentRecorder;
 import io.quarkus.undertow.runtime.UndertowHandlersConfServletExtension;
 import io.quarkus.undertow.runtime.filters.CORSRecorder;
 import io.quarkus.vertx.web.deployment.DefaultRouteBuildItem;
+import io.quarkus.vertx.web.deployment.RequireVirtualHttpBuildItem;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.FilterInfo;
 import io.undertow.servlet.api.HttpMethodSecurityInfo;
@@ -141,11 +143,13 @@ public class UndertowBuildStep {
             Consumer<DefaultRouteBuildItem> undertowProducer,
             ExecutorBuildItem executorBuildItem,
             CORSRecorder corsRecorder,
-            HttpConfig config) throws Exception {
+            HttpConfig config,
+            Optional<RequireVirtualHttpBuildItem> isVirtual) throws Exception {
         corsRecorder.setHttpConfig(config);
         Handler<HttpServerRequest> ut = recorder.startUndertow(shutdown, executorBuildItem.getExecutorProxy(),
                 servletDeploymentManagerBuildItem.getDeploymentManager(),
-                wrappers.stream().map(HttpHandlerWrapperBuildItem::getValue).collect(Collectors.toList()));
+                wrappers.stream().map(HttpHandlerWrapperBuildItem::getValue).collect(Collectors.toList()),
+                isVirtual.isPresent());
 
         undertowProducer.accept(new DefaultRouteBuildItem(ut));
         return new ServiceStartBuildItem("undertow");

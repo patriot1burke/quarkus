@@ -12,8 +12,13 @@ import javax.enterprise.event.Event;
 
 import org.jboss.logging.Logger;
 
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelInitializer;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.runtime.BeanContainer;
+import io.quarkus.netty.runtime.virtual.VirtualAddress;
+import io.quarkus.netty.runtime.virtual.VirtualChannel;
+import io.quarkus.netty.runtime.virtual.VirtualServerChannel;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.ShutdownContext;
@@ -26,6 +31,13 @@ import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.impl.Http1xServerConnection;
+import io.vertx.core.http.impl.HttpHandlers;
+import io.vertx.core.impl.ContextInternal;
+import io.vertx.core.impl.EventLoopContext;
+import io.vertx.core.impl.VertxInternal;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.net.impl.VertxHandler;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
@@ -46,10 +58,14 @@ public class VertxWebRecorder {
 
     public void configureRouter(RuntimeValue<Vertx> vertx, BeanContainer container, Map<String, List<Route>> routeHandlers,
             VertxHttpConfiguration vertxHttpConfiguration, LaunchMode launchMode, ShutdownContext shutdown,
-            Handler<HttpServerRequest> defaultRoute) {
+            Handler<HttpServerRequest> defaultRoute, boolean isVirtual) {
 
-        List<io.vertx.ext.web.Route> appRoutes = initialize(vertx.getValue(), vertxHttpConfiguration, routeHandlers,
-                launchMode, defaultRoute);
+        List<io.vertx.ext.web.Route> appRoutes = initializeRoutes(vertx.getValue(), routeHandlers, defaultRoute);
+        if (isVirtual) {
+            initializeVirtual(vertx.getValue());
+        } else {
+            initializeServer(vertx.getValue(), vertxHttpConfiguration, launchMode);
+        }
         container.instance(RouterProducer.class).initialize(router);
 
         if (launchMode == LaunchMode.DEVELOPMENT) {
@@ -65,17 +81,56 @@ public class VertxWebRecorder {
             shutdown.addShutdownTask(new Runnable() {
                 @Override
                 public void run() {
-                    server.close();
+                    if (server != null)
+                        server.close();
                     router = null;
                     server = null;
+                    virtualBootstrap = null;
                 }
             });
         }
     }
 
-    List<io.vertx.ext.web.Route> initialize(Vertx vertx, VertxHttpConfiguration vertxHttpConfiguration,
-            Map<String, List<Route>> routeHandlers,
-            LaunchMode launchMode,
+    static void initializeServer(Vertx vertx,
+            VertxHttpConfiguration vertxHttpConfiguration,
+            LaunchMode launchMode) {
+
+        // Start the server
+        if (server == null) {
+            CountDownLatch latch = new CountDownLatch(1);
+            // Http server configuration
+            HttpServerOptions httpServerOptions = createHttpServerOptions(vertxHttpConfiguration, launchMode);
+            Event<Object> events = Arc.container().beanManager().getEvent();
+            events.select(HttpServerOptions.class).fire(httpServerOptions);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            server = vertx.createHttpServer(httpServerOptions).requestHandler(router)
+                    .listen(ar -> {
+                        if (ar.succeeded()) {
+                            // TODO log proper message
+                            Timing.setHttpServer(String.format(
+                                    "Listening on: http://%s:%s", httpServerOptions.getHost(), httpServerOptions.getPort()));
+
+                        } else {
+                            // We can't throw an exception from here as we are on the event loop.
+                            // We store the failure in a reference.
+                            // The reference will be checked in the main thread, and the failure re-thrown.
+                            failure.set(ar.cause());
+                        }
+                        latch.countDown();
+                    });
+            try {
+                latch.await();
+                if (failure.get() != null) {
+                    throw new IllegalStateException("Unable to start the HTTP server", failure.get());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Unable to start the HTTP server", e);
+            }
+        }
+    }
+
+    static List<io.vertx.ext.web.Route> initializeRoutes(Vertx vertx, Map<String, List<Route>> routeHandlers,
             Handler<HttpServerRequest> defaultRoute) {
         List<io.vertx.ext.web.Route> routes = new ArrayList<>();
         if (router == null) {
@@ -103,43 +158,11 @@ public class VertxWebRecorder {
                 }
             });
         }
-
-        // Start the server
-        if (server == null) {
-            CountDownLatch latch = new CountDownLatch(1);
-            // Http server configuration
-            HttpServerOptions httpServerOptions = createHttpServerOptions(vertxHttpConfiguration, launchMode);
-            event.select(HttpServerOptions.class).fire(httpServerOptions);
-            AtomicReference<Throwable> failure = new AtomicReference<>();
-            server = vertx.createHttpServer(httpServerOptions).requestHandler(router)
-                    .listen(ar -> {
-                        if (ar.succeeded()) {
-                            // TODO log proper message
-                            Timing.setHttpServer(String.format(
-                                    "Listening on: http://%s:%s", httpServerOptions.getHost(), httpServerOptions.getPort()));
-
-                        } else {
-                            // We can't throw an exception from here as we are on the event loop.
-                            // We store the failure in a reference.
-                            // The reference will be checked in the main thread, and the failure re-thrown.
-                            failure.set(ar.cause());
-                        }
-                        latch.countDown();
-                    });
-            try {
-                latch.await();
-                if (failure.get() != null) {
-                    throw new IllegalStateException("Unable to start the HTTP server", failure.get());
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Unable to start the HTTP server", e);
-            }
-        }
         return routes;
     }
 
-    private HttpServerOptions createHttpServerOptions(VertxHttpConfiguration vertxHttpConfiguration, LaunchMode launchMode) {
+    private static HttpServerOptions createHttpServerOptions(VertxHttpConfiguration vertxHttpConfiguration,
+            LaunchMode launchMode) {
         // TODO other config properties
         HttpServerOptions options = new HttpServerOptions();
         options.setHost(vertxHttpConfiguration.host);
@@ -147,7 +170,7 @@ public class VertxWebRecorder {
         return options;
     }
 
-    private io.vertx.ext.web.Route addRoute(Router router, Handler<RoutingContext> handler, Route routeAnnotation) {
+    private static io.vertx.ext.web.Route addRoute(Router router, Handler<RoutingContext> handler, Route routeAnnotation) {
         io.vertx.ext.web.Route route;
         if (!routeAnnotation.regex().isEmpty()) {
             route = router.routeWithRegex(routeAnnotation.regex());
@@ -194,7 +217,7 @@ public class VertxWebRecorder {
     }
 
     @SuppressWarnings("unchecked")
-    private Handler<RoutingContext> createHandler(String handlerClassName) {
+    private static Handler<RoutingContext> createHandler(String handlerClassName) {
         try {
             ClassLoader cl = Thread.currentThread().getContextClassLoader();
             if (cl == null) {
@@ -209,4 +232,56 @@ public class VertxWebRecorder {
         }
     }
 
+    protected static ServerBootstrap virtualBootstrap;
+    public static VirtualAddress VIRTUAL_HTTP = new VirtualAddress("netty-virtual-http");
+
+    private static void initializeVirtual(Vertx vertxRuntime) {
+        if (virtualBootstrap != null)
+            return;
+        VertxInternal vertx = (VertxInternal) vertxRuntime;
+        virtualBootstrap = new ServerBootstrap();
+        HttpHandlers handlers = new HttpHandlers(
+                null,
+                router,
+                null,
+                null,
+                null);
+
+        virtualBootstrap.group(vertx.getEventLoopGroup())
+                .channel(VirtualServerChannel.class)
+                .handler(new ChannelInitializer<VirtualServerChannel>() {
+                    @Override
+                    public void initChannel(VirtualServerChannel ch) throws Exception {
+                        //ch.pipeline().addLast(new LoggingHandler(LogLevel.INFO));
+                    }
+                })
+                .childHandler(new ChannelInitializer<VirtualChannel>() {
+                    @Override
+                    public void initChannel(VirtualChannel ch) throws Exception {
+                        ContextInternal context = new EventLoopContext(vertx, ch.eventLoop(), null, null, null,
+                                new JsonObject(), Thread.currentThread().getContextClassLoader());
+                        VertxHandler<Http1xServerConnection> handler = VertxHandler.create(context, chctx -> {
+                            Http1xServerConnection conn = new Http1xServerConnection(
+                                    context.owner(),
+                                    null,
+                                    new HttpServerOptions(),
+                                    chctx,
+                                    context,
+                                    "localhost",
+                                    handlers,
+                                    null);
+                            return conn;
+                        });
+                        ch.pipeline().addLast("handler", handler);
+                    }
+                });
+
+        // Start the server.
+        try {
+            virtualBootstrap.bind(VIRTUAL_HTTP).sync();
+        } catch (InterruptedException e) {
+            throw new RuntimeException("failed to bind virtual http");
+        }
+
+    }
 }

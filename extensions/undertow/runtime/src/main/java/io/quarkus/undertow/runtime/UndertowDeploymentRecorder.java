@@ -100,25 +100,23 @@ public class UndertowDeploymentRecorder {
      */
     protected static final int BUFFER_SIZE = 8 * 1024;
 
+    private static boolean useDirect = true;
+
     //TODO: clean this up
     private static BufferAllocator ALLOCATOR = new BufferAllocator() {
         @Override
         public ByteBuf allocateBuffer() {
-            return PooledByteBufAllocator.DEFAULT.buffer(BUFFER_SIZE);
+            return allocateBuffer(useDirect);
         }
 
         @Override
         public ByteBuf allocateBuffer(boolean direct) {
-            if (direct) {
-                return PooledByteBufAllocator.DEFAULT.directBuffer(BUFFER_SIZE);
-            } else {
-                return PooledByteBufAllocator.DEFAULT.heapBuffer(BUFFER_SIZE);
-            }
+            return allocateBuffer(direct, BUFFER_SIZE);
         }
 
         @Override
         public ByteBuf allocateBuffer(int bufferSize) {
-            return PooledByteBufAllocator.DEFAULT.buffer(bufferSize);
+            return allocateBuffer(useDirect, bufferSize);
         }
 
         @Override
@@ -298,7 +296,7 @@ public class UndertowDeploymentRecorder {
 
     public Handler<HttpServerRequest> startUndertow(ShutdownContext shutdown, ExecutorService executorService,
             DeploymentManager manager,
-            List<HandlerWrapper> wrappers) throws Exception {
+            List<HandlerWrapper> wrappers, boolean isVirtual) throws Exception {
 
         shutdown.addShutdownTask(new Runnable() {
             @Override
@@ -322,6 +320,7 @@ public class UndertowDeploymentRecorder {
         }
         currentRoot = main;
 
+        useDirect = !isVirtual; // use heap if isVirtual == true
         DefaultExchangeHandler defaultHandler = new DefaultExchangeHandler(ROOT_HANDLER);
         return new Handler<HttpServerRequest>() {
             @Override

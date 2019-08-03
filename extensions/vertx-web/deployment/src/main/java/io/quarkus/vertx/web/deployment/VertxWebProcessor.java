@@ -1,5 +1,7 @@
 package io.quarkus.vertx.web.deployment;
 
+import static io.quarkus.runtime.annotations.ConfigPhase.BUILD_TIME;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -50,6 +52,8 @@ import io.quarkus.gizmo.ClassOutput;
 import io.quarkus.gizmo.MethodCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.ResultHandle;
+import io.quarkus.runtime.annotations.ConfigItem;
+import io.quarkus.runtime.annotations.ConfigRoot;
 import io.quarkus.vertx.deployment.VertxBuildItem;
 import io.quarkus.vertx.web.Route;
 import io.quarkus.vertx.web.RoutingExchange;
@@ -124,6 +128,18 @@ class VertxWebProcessor {
         }
     }
 
+    @ConfigRoot(phase = BUILD_TIME)
+    static final class VertxWebConfig {
+        /**
+         * If this is true then only a virtual channel will be set up for vertx web.
+         * We have this for testing purposes.
+         */
+        @ConfigItem(defaultValue = "false")
+        boolean virtual;
+    }
+
+    VertxWebConfig config;
+
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
     ServiceStartBuildItem build(VertxWebRecorder recorder, BeanContainerBuildItem beanContainer,
@@ -133,8 +149,8 @@ class VertxWebProcessor {
             BuildProducer<ReflectiveClassBuildItem> reflectiveClasses,
             ShutdownContextBuildItem shutdown,
             VertxBuildItem vertx,
-            Optional<DefaultRouteBuildItem> defaultRoute) {
-
+            Optional<DefaultRouteBuildItem> defaultRoute,
+            Optional<RequireVirtualHttpBuildItem> isVirtual) {
         ClassOutput classOutput = new ClassOutput() {
             @Override
             public void write(String name, byte[] data) {
@@ -152,7 +168,8 @@ class VertxWebProcessor {
         }
         recorder.configureRouter(vertx.getVertx(), beanContainer.getValue(), routeConfigs, vertxHttpConfiguration,
                 launchMode.getLaunchMode(),
-                shutdown, defaultRoute.map(DefaultRouteBuildItem::getHandler).orElse(null));
+                shutdown, defaultRoute.map(DefaultRouteBuildItem::getHandler).orElse(null),
+                isVirtual.isPresent() || config.virtual);
         return new ServiceStartBuildItem("vertx-web");
     }
 
