@@ -79,6 +79,7 @@ import io.quarkus.arc.deployment.BeanContainerBuildItem;
 import io.quarkus.arc.deployment.ContextRegistrarBuildItem;
 import io.quarkus.arc.deployment.RuntimeBeanBuildItem;
 import io.quarkus.arc.processor.ContextRegistrar;
+import io.quarkus.deployment.Capabilities;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.Record;
@@ -134,13 +135,18 @@ public class UndertowBuildStep {
     @Inject
     CombinedIndexBuildItem combinedIndexBuildItem;
 
+    @BuildStep(providesCapabilities = Capabilities.SERVLET)
+    public void setupCapability() {
+        // complete
+    }
+
     @BuildStep
     @Record(RUNTIME_INIT)
     public ServiceStartBuildItem boot(UndertowDeploymentRecorder recorder,
             ServletDeploymentManagerBuildItem servletDeploymentManagerBuildItem,
             List<HttpHandlerWrapperBuildItem> wrappers,
             ShutdownContextBuildItem shutdown,
-            Consumer<DefaultRouteBuildItem> undertowProducer,
+            BuildProducer<DefaultRouteBuildItem> undertowProducer,
             ExecutorBuildItem executorBuildItem,
             CORSRecorder corsRecorder,
             HttpConfig config,
@@ -151,7 +157,7 @@ public class UndertowBuildStep {
                 wrappers.stream().map(HttpHandlerWrapperBuildItem::getValue).collect(Collectors.toList()),
                 isVirtual.isPresent());
 
-        undertowProducer.accept(new DefaultRouteBuildItem(ut));
+        undertowProducer.produce(new DefaultRouteBuildItem(ut));
         return new ServiceStartBuildItem("undertow");
     }
 

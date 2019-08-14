@@ -83,8 +83,11 @@ public class VirtualConnection {
 
     public static VirtualConnection connect(final VirtualAddress remoteAddress) {
         Channel boundChannel = VirtualChannelRegistry.get(remoteAddress);
+        if (boundChannel == null) {
+            throw new RuntimeException("No virtual channel available");
+        }
         if (!(boundChannel instanceof VirtualServerChannel)) {
-            throw new RuntimeException("Should be virtual server channel");
+            throw new RuntimeException("Should be virtual server channel: " + boundChannel.getClass().getName());
         }
 
         VirtualServerChannel serverChannel = (VirtualServerChannel) boundChannel;

@@ -34,7 +34,6 @@ import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.impl.Http1xServerConnection;
 import io.vertx.core.http.impl.HttpHandlers;
 import io.vertx.core.impl.ContextInternal;
-import io.vertx.core.impl.EventLoopContext;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.impl.VertxHandler;
@@ -258,8 +257,10 @@ public class VertxWebRecorder {
                 .childHandler(new ChannelInitializer<VirtualChannel>() {
                     @Override
                     public void initChannel(VirtualChannel ch) throws Exception {
-                        ContextInternal context = new EventLoopContext(vertx, ch.eventLoop(), null, null, null,
-                                new JsonObject(), Thread.currentThread().getContextClassLoader());
+                        //ContextInternal context = new EventLoopContext(vertx, ch.eventLoop(), null, null, null,
+                        //        new JsonObject(), Thread.currentThread().getContextClassLoader());
+                        ContextInternal context = (ContextInternal) vertx.createEventLoopContext(null, null, new JsonObject(),
+                                Thread.currentThread().getContextClassLoader());
                         VertxHandler<Http1xServerConnection> handler = VertxHandler.create(context, chctx -> {
                             Http1xServerConnection conn = new Http1xServerConnection(
                                     context.owner(),

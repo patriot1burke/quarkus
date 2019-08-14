@@ -149,7 +149,7 @@ class VertxWebProcessor {
             BuildProducer<ReflectiveClassBuildItem> reflectiveClasses,
             ShutdownContextBuildItem shutdown,
             VertxBuildItem vertx,
-            Optional<DefaultRouteBuildItem> defaultRoute,
+            List<DefaultRouteBuildItem> defaultRouteList,
             Optional<RequireVirtualHttpBuildItem> isVirtual) {
         ClassOutput classOutput = new ClassOutput() {
             @Override
@@ -166,6 +166,15 @@ class VertxWebProcessor {
             routeConfigs.put(handlerClass, routes);
             reflectiveClasses.produce(new ReflectiveClassBuildItem(false, false, handlerClass));
         }
+        if (defaultRouteList.size() > 1) {
+            // this should never happen
+            throw new IllegalStateException("More than one default route created");
+        }
+        if (defaultRouteList.isEmpty()) {
+            LOGGER.info("- no default routes");
+        }
+        Optional<DefaultRouteBuildItem> defaultRoute = defaultRouteList.isEmpty() ? Optional.empty()
+                : Optional.of(defaultRouteList.get(0));
         recorder.configureRouter(vertx.getVertx(), beanContainer.getValue(), routeConfigs, vertxHttpConfiguration,
                 launchMode.getLaunchMode(),
                 shutdown, defaultRoute.map(DefaultRouteBuildItem::getHandler).orElse(null),

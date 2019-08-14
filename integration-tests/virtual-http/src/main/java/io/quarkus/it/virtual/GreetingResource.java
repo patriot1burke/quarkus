@@ -21,4 +21,5 @@ public class GreetingResource {
     @Consumes(MediaType.TEXT_PLAIN)
     public String hello(String name) {
         return "hello " + name;
-    }}
+    }
+}

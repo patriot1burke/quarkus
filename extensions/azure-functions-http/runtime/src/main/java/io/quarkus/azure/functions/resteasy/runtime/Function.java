@@ -1,12 +1,13 @@
 package io.quarkus.azure.functions.resteasy.runtime;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+
+import org.jboss.logging.Logger;
 
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpRequestMessage;
@@ -29,6 +30,7 @@ import io.quarkus.runtime.Application;
 import io.quarkus.vertx.web.runtime.VertxWebRecorder;
 
 public class Function {
+    private static final Logger log = Logger.getLogger("io.quarkus.azure");
 
     public HttpResponseMessage run(
             @HttpTrigger(name = "req") HttpRequestMessage<Optional<byte[]>> request,
@@ -105,10 +107,12 @@ public class Function {
         ByteArrayOutputStream baos = null;
         for (;;) {
             // todo should we timeout? have a timeout config?
+            //log.info("waiting for message");
             Object msg = connection.queue().poll(100, TimeUnit.MILLISECONDS);
             try {
                 if (msg == null)
                     continue;
+                log.info("Got message: " + msg.getClass().getName());
 
                 if (msg instanceof HttpResponse) {
                     HttpResponse res = (HttpResponse) msg;

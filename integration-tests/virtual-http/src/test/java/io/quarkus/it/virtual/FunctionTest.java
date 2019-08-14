@@ -1,17 +1,20 @@
 package io.quarkus.it.virtual;
 
+import java.net.URI;
+import java.util.logging.Logger;
+
+import javax.ws.rs.core.MediaType;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpResponseMessage;
 import com.microsoft.azure.functions.HttpStatus;
+
 import io.quarkus.azure.functions.resteasy.runtime.Function;
 import io.quarkus.test.junit.QuarkusTest;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
-import javax.ws.rs.core.MediaType;
-import java.net.URI;
-import java.util.logging.Logger;
 
 /**
  * Unit test for Function class.
