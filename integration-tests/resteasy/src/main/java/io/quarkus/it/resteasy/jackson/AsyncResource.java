@@ -2,6 +2,7 @@ package io.quarkus.it.resteasy.jackson;
 
 import io.quarkus.vertx.runtime.VertxProducer;
 import io.reactivex.Single;
+import io.vertx.core.Context;
 import io.vertx.reactivex.core.buffer.Buffer;
 import io.vertx.reactivex.ext.web.client.HttpResponse;
 import io.vertx.reactivex.ext.web.client.WebClient;
@@ -31,7 +32,7 @@ public class AsyncResource {
 
         System.err.println("Created client");
         return responseHandler.map(body -> {
-            System.err.println("Got body");
+            System.err.println("Got body in io thread? " + Context.isOnEventLoopThread());
             return body.body().toString();
         }).doAfterTerminate(() -> client.close());
     }
