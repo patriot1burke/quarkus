@@ -12,10 +12,18 @@ class AsyncTest {
     @Test
     void testAsync() {
         given()
-                .when().get("/async")
+                .when().get("/ping/async")
                 .then()
                 .statusCode(200)
                 .body(containsString("/patents"));
+    }
+    @Test
+    void testNonAsync() {
+        given()
+                .when().get("/ping")
+                .then()
+                .statusCode(200)
+                .body(containsString("hello"));
     }
 
 }

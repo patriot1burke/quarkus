@@ -12,12 +12,13 @@ import javax.inject.Inject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 
-@Path("/async")
+@Path("/ping")
 public class AsyncResource {
 
     @Inject
     VertxProducer vertx;
 
+    @Path("async")
     @GET
     public Single<String> hello8(){
         System.err.println("Creating client: " + (vertx != null));
@@ -35,5 +36,10 @@ public class AsyncResource {
             System.err.println("Got body in io thread? " + Context.isOnEventLoopThread());
             return body.body().toString();
         }).doAfterTerminate(() -> client.close());
+    }
+
+    @GET
+    public String nonAsync() {
+        return "hello";
     }
 }

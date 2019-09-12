@@ -23,7 +23,7 @@ import io.quarkus.resteasy.runtime.standalone.ResteasyStandaloneRecorder;
 import io.quarkus.resteasy.server.common.deployment.ResteasyDeploymentBuildItem;
 import io.quarkus.resteasy.server.common.deployment.ResteasyInjectionReadyBuildItem;
 import io.quarkus.undertow.deployment.KnownPathsBuildItem;
-import io.quarkus.vertx.core.deployment.InternalWebVertxBuildItem;
+import io.quarkus.vertx.core.deployment.CoreVertxBuildItem;
 import io.quarkus.vertx.http.deployment.DefaultRouteBuildItem;
 import io.quarkus.vertx.http.deployment.RequireVirtualHttpBuildItem;
 import io.vertx.core.Handler;
@@ -42,7 +42,8 @@ public class ResteasyStandaloneBuildStep {
             Capabilities capabilities,
             BuildProducer<DefaultRouteBuildItem> routeProducer,
             ResteasyDeploymentBuildItem deployment,
-            InternalWebVertxBuildItem vertx,
+            CoreVertxBuildItem vertx,
+            // InternalWebVertxBuildItem vertx,
             BeanContainerBuildItem beanContainer,
             Optional<RequireVirtualHttpBuildItem> requireVirtual,
             ResteasyInjectionReadyBuildItem resteasyInjectionReady) throws Exception {

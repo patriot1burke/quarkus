@@ -9,17 +9,21 @@ import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.NewCookie;
 import javax.ws.rs.ext.RuntimeDelegate;
 
+import org.jboss.logging.Logger;
 import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
 import org.jboss.resteasy.spi.HttpResponse;
 import org.jboss.resteasy.spi.ResteasyProviderFactory;
 
 import io.netty.buffer.ByteBuf;
+import io.vertx.core.Context;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 
 public class VertxHttpResponse implements HttpResponse {
+    private static final Logger log = Logger.getLogger("io.quarkus.resteasy");
+
     private int status = 200;
     private OutputStream os;
     private MultivaluedMap<String, Object> outputHeaders;
@@ -158,6 +162,7 @@ public class VertxHttpResponse implements HttpResponse {
     }
 
     public void writeBlocking(ByteBuf buffer, boolean finished) throws IOException {
+        log.info("***** ioThread: " + Context.isOnEventLoopThread());
         checkException();
         if (!isCommitted()) {
             committed = true;
