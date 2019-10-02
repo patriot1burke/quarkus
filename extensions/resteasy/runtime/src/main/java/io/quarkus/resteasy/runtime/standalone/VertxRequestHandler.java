@@ -17,6 +17,7 @@ import org.jboss.resteasy.spi.Failure;
 import org.jboss.resteasy.spi.ResteasyDeployment;
 import org.jboss.resteasy.spi.UnhandledException;
 
+import io.netty.buffer.ByteBufInputStream;
 import io.quarkus.arc.ManagedContext;
 import io.quarkus.arc.runtime.BeanContainer;
 import io.quarkus.security.identity.CurrentIdentityAssociation;
@@ -40,12 +41,15 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
     protected final BufferAllocator allocator;
     protected final BeanContainer beanContainer;
     protected final CurrentIdentityAssociation association;
+    protected final ResteasyStandaloneConfiguration config;
 
     public VertxRequestHandler(Vertx vertx,
             BeanContainer beanContainer,
             ResteasyDeployment deployment,
             String servletMappingPrefix,
-            BufferAllocator allocator) {
+            BufferAllocator allocator,
+            ResteasyStandaloneConfiguration config) {
+        this.config = config;
         this.vertx = vertx;
         this.beanContainer = beanContainer;
         this.dispatcher = new RequestDispatcher((SynchronousDispatcher) deployment.getDispatcher(),
@@ -58,12 +62,32 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
 
     @Override
     public void handle(RoutingContext request) {
+        if (config.writeQueueSize.isPresent())
+            request.response().setWriteQueueMaxSize(config.writeQueueSize.getAsInt());
+        if (config.nonBlockingRequests) {
+            handleOnIoThread(request);
+        } else {
+            handleOnWorkerThread(request);
+        }
+    }
+
+    protected void handleOnWorkerThread(RoutingContext request) {
         // have to create input stream here.  Cannot execute in another thread
         // otherwise request handlers may not get set up before request ends
         VertxInputStream is = new VertxInputStream(request.request());
         vertx.executeBlocking(event -> {
             dispatchRequestContext(request, is, new VertxBlockingOutput(request.request()));
         }, false, event -> {
+        });
+    }
+
+    protected void handleOnIoThread(RoutingContext request) {
+        request.request().bodyHandler(buff -> {
+            InputStream is = null;
+            if (buff.length() > 0) {
+                is = new ByteBufInputStream(buff.getByteBuf());
+            }
+            dispatchRequestContext(request, is, new VertxBlockingOutput(request.request()));
         });
     }
 

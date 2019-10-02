@@ -28,6 +28,7 @@ import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
 import io.quarkus.resteasy.common.deployment.ResteasyInjectionReadyBuildItem;
+import io.quarkus.resteasy.runtime.standalone.ResteasyStandaloneConfiguration;
 import io.quarkus.resteasy.runtime.standalone.ResteasyStandaloneRecorder;
 import io.quarkus.resteasy.server.common.deployment.ResteasyDeploymentBuildItem;
 import io.quarkus.vertx.core.deployment.InternalWebVertxBuildItem;
@@ -47,6 +48,7 @@ public class ResteasyStandaloneBuildStep {
     @BuildStep()
     @Record(STATIC_INIT)
     public void staticInit(ResteasyStandaloneRecorder recorder,
+            ResteasyStandaloneConfiguration config,
             Capabilities capabilities,
             ResteasyDeploymentBuildItem deployment,
             ApplicationArchivesBuildItem applicationArchivesBuildItem,
@@ -56,7 +58,7 @@ public class ResteasyStandaloneBuildStep {
             return;
         }
         Set<String> knownPaths = getClasspathResources(applicationArchivesBuildItem);
-        recorder.staticInit(deployment.getDeployment(), deployment.getRootPath(), knownPaths);
+        recorder.staticInit(deployment.getDeployment(), deployment.getRootPath(), knownPaths, config);
         standalone.produce(new ResteasyStandaloneBuildItem());
 
     }

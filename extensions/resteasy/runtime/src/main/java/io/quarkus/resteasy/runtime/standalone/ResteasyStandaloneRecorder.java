@@ -33,7 +33,7 @@ public class ResteasyStandaloneRecorder {
     /**
      * TODO: configuration
      */
-    protected static final int BUFFER_SIZE = 8 * 1024;
+    protected static int BUFFER_SIZE = 8 * 1024;
 
     private static boolean useDirect = true;
 
@@ -78,12 +78,19 @@ public class ResteasyStandaloneRecorder {
     private static ResteasyDeployment deployment;
     private static Set<String> knownPaths;
     private static String contextPath;
+    private static ResteasyStandaloneConfiguration config;
 
-    public void staticInit(ResteasyDeployment dep, String path, Set<String> known) {
+    public void staticInit(ResteasyDeployment dep, String path, Set<String> known, ResteasyStandaloneConfiguration con) {
         deployment = dep;
         deployment.start();
         knownPaths = known;
         contextPath = path;
+        config = con;
+        if (config.bufferSize.isPresent())
+            BUFFER_SIZE = config.bufferSize.getAsInt();
+        log.info("** bufferSize is present: " + con.bufferSize.isPresent());
+        log.info("** writeQueueSize is present: " + con.writeQueueSize.isPresent());
+        log.info("** nonBlockingRequests: " + con.nonBlockingRequests);
     }
 
     public Consumer<Route> start(RuntimeValue<Vertx> vertxValue,
@@ -95,6 +102,7 @@ public class ResteasyStandaloneRecorder {
             @Override
             public void run() {
                 deployment.stop();
+                System.out.println("writeQueueFull hit: " + VertxBlockingOutput.fullQueueCounter.intValue());
             }
         });
         Vertx vertx = vertxValue.getValue();
@@ -130,7 +138,8 @@ public class ResteasyStandaloneRecorder {
             });
         }
 
-        VertxRequestHandler requestHandler = new VertxRequestHandler(vertx, beanContainer, deployment, contextPath, ALLOCATOR);
+        VertxRequestHandler requestHandler = new VertxRequestHandler(vertx, beanContainer, deployment, contextPath, ALLOCATOR,
+                config);
 
         handlers.add(requestHandler);
         return new Consumer<Route>() {

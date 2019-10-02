@@ -2,6 +2,8 @@ package io.quarkus.resteasy.runtime.standalone;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.jboss.logging.Logger;
 
@@ -19,6 +21,7 @@ public class VertxBlockingOutput implements VertxOutput {
     protected final HttpServerRequest request;
     protected boolean first = true;
     protected Throwable throwable;
+    public static AtomicLong fullQueueCounter = new AtomicLong(0);
 
     public VertxBlockingOutput(HttpServerRequest request) {
         this.request = request;
@@ -27,8 +30,6 @@ public class VertxBlockingOutput implements VertxOutput {
             public void handle(Throwable event) {
                 throwable = event;
                 log.debugf(event, "IO Exception ");
-                //TODO: do we need this?
-                terminateResponse();
                 request.connection().close();
                 synchronized (request.connection()) {
                     if (waitingForDrain) {
@@ -46,13 +47,8 @@ public class VertxBlockingOutput implements VertxOutput {
                         request.connection().notify();
                     }
                 }
-                terminateResponse();
             }
         });
-    }
-
-    public void terminateResponse() {
-
     }
 
     Buffer createBuffer(ByteBuf data) {
@@ -61,23 +57,79 @@ public class VertxBlockingOutput implements VertxOutput {
 
     @Override
     public void write(ByteBuf data, boolean last) throws IOException {
+        // we are going to assume that if you start on an io thread you stay on an io thread (and vice versa)
+        // if this is not the case, logic needs to change
+
+        if (Context.isOnEventLoopThread()) {
+            writeNonBlocking(data, last);
+        } else {
+            writeBlocking(data, last);
+        }
+    }
+
+    LinkedList<Buffer> fullBuffer;
+    boolean end;
+
+    protected void writeNonBlocking(ByteBuf data, boolean last) {
+        synchronized (request.connection()) {
+            this.end = last;
+            if (data != null) {
+                if (fullBuffer == null)
+                    fullBuffer = new LinkedList<>();
+                fullBuffer.add(createBuffer(data));
+            }
+            drainBuffer(false);
+        }
+    }
+
+    protected void drainBuffer(boolean isDrainThread) {
+        //log.info("**** drainBuffer buffer queue size: " + (fullBuffer == null ? "0" : fullBuffer.size()));
+        while (fullBuffer != null && !fullBuffer.isEmpty()) {
+            //log.info("loop queue size: " + fullBuffer.size() + " on thread  " + (isDrainThread ? "drain" : "io"));
+            if (request.response().writeQueueFull()) {
+                fullQueueCounter.incrementAndGet();
+                //log.info("writeQueueFull on thread  " + (isDrainThread ? "drain" : "io"));
+                if (!drainHandlerRegistered) {
+                    drainHandlerRegistered = true;
+                    //log.info("register drain on thread  " + (drainThread ? "drain" : "io"));
+                    request.response().drainHandler(event -> {
+                        //log.info("** drain triggered");
+                        synchronized (request.connection()) {
+                            drainBuffer(true);
+                        }
+                    });
+                }
+                return;
+            }
+            Buffer buf = fullBuffer.removeFirst();
+            //log.info("write on thread " + (isDrainThread ? "drain" : "io"));
+            if (end && fullBuffer.isEmpty()) {
+                request.response().end(buf);
+                return;
+            } else {
+                request.response().write(buf);
+            }
+        }
+        drainHandlerRegistered = false;
+        if (end) {
+            //log.info("end on thread " + (drainThread ? "drain" : "io"));
+            request.response().end();
+        }
+
+    }
+
+    protected void writeBlocking(ByteBuf data, boolean last) throws IOException {
         if (last && data == null) {
             request.response().end();
             return;
         }
-        try {
-            //do all this in the same lock
-            synchronized (request.connection()) {
-                awaitWriteable();
-                if (last) {
-                    request.response().end(createBuffer(data));
-                } else {
-                    request.response().write(createBuffer(data));
-                }
-            }
-        } finally {
+        //do all this in the same lock
+        synchronized (request.connection()) {
+            awaitWriteable();
             if (last) {
-                terminateResponse();
+                request.response().end(createBuffer(data));
+            } else {
+                request.response().write(createBuffer(data));
             }
         }
     }
