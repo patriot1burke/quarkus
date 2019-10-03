@@ -88,7 +88,7 @@ public class VertxBlockingOutput implements VertxOutput {
             //log.info("loop queue size: " + fullBuffer.size() + " on thread  " + (isDrainThread ? "drain" : "io"));
             if (request.response().writeQueueFull()) {
                 fullQueueCounter.incrementAndGet();
-                //log.info("writeQueueFull on thread  " + (isDrainThread ? "drain" : "io"));
+                log.info("writeQueueFull on thread  " + (isDrainThread ? "drain" : "io"));
                 if (!drainHandlerRegistered) {
                     drainHandlerRegistered = true;
                     //log.info("register drain on thread  " + (drainThread ? "drain" : "io"));
@@ -102,7 +102,7 @@ public class VertxBlockingOutput implements VertxOutput {
                 return;
             }
             Buffer buf = fullBuffer.removeFirst();
-            //log.info("write on thread " + (isDrainThread ? "drain" : "io"));
+            log.info("write on thread " + (isDrainThread ? "drain" : "io"));
             if (end && fullBuffer.isEmpty()) {
                 request.response().end(buf);
                 return;
@@ -112,7 +112,7 @@ public class VertxBlockingOutput implements VertxOutput {
         }
         drainHandlerRegistered = false;
         if (end) {
-            //log.info("end on thread " + (drainThread ? "drain" : "io"));
+            log.info("end on thread " + (isDrainThread ? "drain" : "io"));
             request.response().end();
         }
 

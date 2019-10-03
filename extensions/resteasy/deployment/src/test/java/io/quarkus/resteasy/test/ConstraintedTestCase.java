@@ -14,12 +14,12 @@ public class ConstraintedTestCase {
     @RegisterExtension
     static QuarkusUnitTest runner = new QuarkusUnitTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
-                    .addClasses(RootResource.class)
+                    .addClasses(ConstrainedResource.class)
                     .addAsResource("application-constrained.properties",
                             "application.properties"));
 
     @Test
     public void testRootResource() {
-        RestAssured.when().get("/").then().body(Matchers.is("Root Resource"));
+        RestAssured.when().get("/").then().body(Matchers.is("11111111112222222222333333333344444444445555555555"));
     }
 }
