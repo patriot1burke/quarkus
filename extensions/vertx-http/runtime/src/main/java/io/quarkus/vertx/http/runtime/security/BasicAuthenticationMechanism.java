@@ -161,6 +161,7 @@ public class BasicAuthenticationMechanism implements HTTPAuthenticationMechanism
 
     @Override
     public CompletionStage<Boolean> sendChallenge(RoutingContext context) {
+        log.info("*** sendChallenge");
         if (silent) {
             //if this is silent we only send a challenge if the request contained auth headers
             //otherwise we assume another method will send the challenge

@@ -11,8 +11,10 @@ import io.vertx.core.Context;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerRequest;
+import org.jboss.logging.Logger;
 
 public class VertxInputStream extends InputStream {
+    private static final Logger log = Logger.getLogger("io.quarkus.resteasy");
 
     private final VertxBlockingInput exchange;
 
@@ -20,7 +22,7 @@ public class VertxInputStream extends InputStream {
     private boolean finished;
     private ByteBuf pooled;
 
-    public VertxInputStream(HttpServerRequest request) {
+    public VertxInputStream(HttpServerRequest request) throws IOException {
 
         this.exchange = new VertxBlockingInput(request);
     }
@@ -116,7 +118,7 @@ public class VertxInputStream extends InputStream {
         protected boolean waiting = false;
         protected boolean eof = false;
 
-        public VertxBlockingInput(HttpServerRequest request) {
+        public VertxBlockingInput(HttpServerRequest request) throws IOException {
             this.request = request;
             if (!request.isEnded()) {
                 request.handler(this);
@@ -137,7 +139,8 @@ public class VertxInputStream extends InputStream {
                 });
                 request.fetch(1);
             } else {
-                terminateRequest();
+                throw new IOException("Request was ended before Resteasy could process it.");
+                //terminateRequest();
             }
         }
 

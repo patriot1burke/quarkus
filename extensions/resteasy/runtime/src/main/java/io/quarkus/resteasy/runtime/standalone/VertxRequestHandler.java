@@ -74,11 +74,17 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
     protected void handleOnWorkerThread(RoutingContext request) {
         // have to create input stream here.  Cannot execute in another thread
         // otherwise request handlers may not get set up before request ends
-        VertxInputStream is = new VertxInputStream(request.request());
-        vertx.executeBlocking(event -> {
-            dispatchRequestContext(request, is, new VertxBlockingOutput(request.request()));
-        }, false, event -> {
-        });
+        try {
+            VertxInputStream is = new VertxInputStream(request.request());
+            vertx.executeBlocking(event -> {
+                dispatchRequestContext(request, is, new VertxBlockingOutput(request.request()));
+            }, false, event -> {
+            });
+        } catch (IOException e) {
+            log.error("Failed dispatching request", e);
+            request.fail(e);
+        }
+
     }
 
     protected void handleOnIoThread(RoutingContext request) {
