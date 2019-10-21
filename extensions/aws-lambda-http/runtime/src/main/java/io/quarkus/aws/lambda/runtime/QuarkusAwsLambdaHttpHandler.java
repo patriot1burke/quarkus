@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultHttpRequest;
@@ -25,14 +28,14 @@ import io.quarkus.aws.lambda.runtime.model.Headers;
 import io.quarkus.netty.runtime.virtual.VirtualClientConnection;
 import io.quarkus.vertx.http.runtime.VertxHttpRecorder;
 
-public class QuarkusAwsLambdaHttpHandler {
+public class QuarkusAwsLambdaHttpHandler implements RequestHandler<AwsProxyRequest, AwsProxyResponse> {
 
     private static Headers errorHeaders = new Headers();
     static {
         errorHeaders.putSingle("Content-Type", "application/json");
     }
 
-    public static AwsProxyResponse handle(AwsProxyRequest request) {
+    public AwsProxyResponse handleRequest(AwsProxyRequest request, Context context) {
         VirtualClientConnection connection = VirtualClientConnection.connect(VertxHttpRecorder.VIRTUAL_HTTP);
         try {
             return nettyDispatch(connection, request);
@@ -44,7 +47,7 @@ public class QuarkusAwsLambdaHttpHandler {
 
     }
 
-    private static AwsProxyResponse nettyDispatch(VirtualClientConnection connection,
+    private AwsProxyResponse nettyDispatch(VirtualClientConnection connection,
             AwsProxyRequest request)
             throws Exception {
         String path = request.getPath();

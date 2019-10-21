@@ -1,4 +1,4 @@
-package io.quarkus.aws.lambda.runtime;
+package io.quarkus.amazon.lambda.runtime;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,15 +8,10 @@ import java.io.StringWriter;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.quarkus.aws.lambda.runtime.model.AwsProxyRequest;
-import io.quarkus.aws.lambda.runtime.model.AwsProxyResponse;
 import io.quarkus.runtime.Application;
 
-public class QuarkusHttpStreamHandler implements RequestStreamHandler {
-    private static ObjectMapper objectMapper = new ObjectMapper();
-
+public class QuarkusStreamHandler implements RequestStreamHandler {
     protected static final String deploymentStatus;
     protected static boolean started = false;
 
@@ -44,8 +39,6 @@ public class QuarkusHttpStreamHandler implements RequestStreamHandler {
 
     @Override
     public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) throws IOException {
-        AwsProxyRequest request = objectMapper.readerFor(AwsProxyRequest.class).readValue(inputStream);
-        AwsProxyResponse response = QuarkusAwsLambdaHttpHandler.handle(request);
-        objectMapper.writerFor(AwsProxyResponse.class).writeValue(outputStream, response);
+        AmazonLambdaRecorder.handle(inputStream, outputStream, context);
     }
 }
