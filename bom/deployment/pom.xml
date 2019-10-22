@@ -418,11 +418,6 @@
             </dependency>
             <dependency>
                 <groupId>io.quarkus</groupId>
-                <artifactId>quarkus-aws-lambda-http-deployment</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-kotlin-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>

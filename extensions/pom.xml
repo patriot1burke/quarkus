@@ -108,7 +108,6 @@
         <module>amazon-lambda-http</module>
         <module>amazon-dynamodb</module>
         <module>azure-functions-http</module>
-        <module>aws-lambda-http</module>
 
         <!-- Additional languages -->
         <module>kotlin</module>

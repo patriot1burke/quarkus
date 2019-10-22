@@ -52,13 +52,13 @@ public class AmazonLambdaNativeRecorder {
                 running.set(false);
             }
         });
-
         Thread t = new Thread(new Runnable() {
             @SuppressWarnings("unchecked")
             @Override
             public void run() {
 
                 try {
+                    checkQuarkusBootstrapped();
                     URL requestUrl = AmazonLambdaApi.invocationNext();
                     while (running.get()) {
 
@@ -111,6 +111,15 @@ public class AmazonLambdaNativeRecorder {
         }, "Lambda Thread");
         t.start();
 
+    }
+
+    private void checkQuarkusBootstrapped() {
+        // todo we need a better way to do this.
+        if (Application.currentApplication() == null) {
+            throw new RuntimeException("Quarkus initialization error");
+        }
+        String[] args = {};
+        Application.currentApplication().start(args);
     }
 
     private void postResponse(URL url, Object response, ObjectMapper mapper) throws IOException {

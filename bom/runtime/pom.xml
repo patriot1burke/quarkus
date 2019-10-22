@@ -637,11 +637,6 @@
             </dependency>
             <dependency>
                 <groupId>io.quarkus</groupId>
-                <artifactId>quarkus-aws-lambda-http</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-kubernetes</artifactId>
                 <version>${project.version}</version>
             </dependency>

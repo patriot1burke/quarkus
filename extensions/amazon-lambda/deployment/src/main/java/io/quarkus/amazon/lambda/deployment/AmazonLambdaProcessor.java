@@ -27,11 +27,12 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
+import io.quarkus.deployment.builditem.GeneratedSubstrateClassBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
+import io.quarkus.deployment.builditem.ServiceStartBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
 import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.substrate.ReflectiveHierarchyBuildItem;
-import io.quarkus.deployment.builditem.substrate.SubstrateOutputBuildItem;
 import io.quarkus.deployment.recording.RecorderContext;
 import io.quarkus.runtime.LaunchMode;
 
@@ -76,7 +77,7 @@ public final class AmazonLambdaProcessor {
                     reflectiveClassBuildItemBuildProducer, allKnownImplementors);
         }
         reflectiveClassBuildItemBuildProducer
-                .produce(new ReflectiveClassBuildItem(true, true, FunctionError.class));
+                .produce(new ReflectiveClassBuildItem(true, true, true, FunctionError.class));
 
     }
 
@@ -144,7 +145,7 @@ public final class AmazonLambdaProcessor {
                 continue;
 
             lambdaBuildItem = new AmazonLambdaBuildItem(lambda, cdiName);
-            reflectiveClassBuildItemBuildProducer.produce(new ReflectiveClassBuildItem(true, false, lambda));
+            reflectiveClassBuildItemBuildProducer.produce(new ReflectiveClassBuildItem(true, true, true, lambda));
 
             ClassInfo current = info;
             boolean done = false;
@@ -187,17 +188,26 @@ public final class AmazonLambdaProcessor {
         recorder.setHandlerClass(handlerClass, beanContainerBuildItem.getValue());
     }
 
+    /**
+     * This should only run when building a native image
+     */
     @BuildStep
     @Record(value = ExecutionTime.RUNTIME_INIT, optional = true)
-    SubstrateOutputBuildItem bootNativeEventLoop(AmazonLambdaNativeRecorder recorder,
+    void bootNativeEventLoop(AmazonLambdaNativeRecorder recorder,
             BeanContainerBuildItem beanContainerBuildItem,
             RecorderContext context,
             ShutdownContextBuildItem shutdownContextBuildItem,
+            List<ServiceStartBuildItem> orderServicesFirst, // try to force some ordering of recorders
+            BuildProducer<GeneratedSubstrateClassBuildItem> substrate, // hax - todo find better way to run only on native image build
             AmazonLambdaBuildItem lambda) {
+        startLoop(recorder, beanContainerBuildItem, context, shutdownContextBuildItem, lambda);
+    }
+
+    private void startLoop(AmazonLambdaNativeRecorder recorder, BeanContainerBuildItem beanContainerBuildItem,
+            RecorderContext context, ShutdownContextBuildItem shutdownContextBuildItem, AmazonLambdaBuildItem lambda) {
         Class<? extends RequestHandler<?, ?>> handlerClass = (Class<? extends RequestHandler<?, ?>>) context
                 .classProxy(lambda.getHandlerClass());
         recorder.startNativePollLoop(handlerClass, beanContainerBuildItem.getValue(), shutdownContextBuildItem);
-        return new SubstrateOutputBuildItem();
     }
 
     @BuildStep
@@ -206,12 +216,13 @@ public final class AmazonLambdaProcessor {
             AmazonLambdaNativeRecorder recorder,
             BeanContainerBuildItem beanContainerBuildItem,
             RecorderContext context,
+            List<ServiceStartBuildItem> orderServicesFirst, // try to force some ordering of recorders
             ShutdownContextBuildItem shutdownContextBuildItem,
             LaunchModeBuildItem launchModeBuildItem,
             AmazonLambdaBuildItem lambda) {
         LaunchMode mode = launchModeBuildItem.getLaunchMode();
         if (config.enablePollingJvmMode && mode.isDevOrTest()) {
-            bootNativeEventLoop(recorder, beanContainerBuildItem, context, shutdownContextBuildItem, lambda);
+            startLoop(recorder, beanContainerBuildItem, context, shutdownContextBuildItem, lambda);
         }
     }
 
