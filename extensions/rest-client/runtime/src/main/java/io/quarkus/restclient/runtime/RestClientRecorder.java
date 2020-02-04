@@ -5,8 +5,6 @@ import java.util.Set;
 import javax.ws.rs.RuntimeType;
 
 import org.eclipse.microprofile.rest.client.spi.RestClientBuilderResolver;
-import org.jboss.resteasy.core.providerfactory.ClientHelper;
-import org.jboss.resteasy.core.providerfactory.NOOPServerHelper;
 import org.jboss.resteasy.core.providerfactory.ResteasyProviderFactoryImpl;
 import org.jboss.resteasy.microprofile.client.RestClientBuilderImpl;
 import org.jboss.resteasy.plugins.providers.RegisterBuiltin;
@@ -26,24 +24,18 @@ public class RestClientRecorder {
         RestClientBuilderImpl.setSslEnabled(sslEnabled);
     }
 
-    public void initializeResteasyProviderFactory(RuntimeValue<InjectorFactory> injectorFactory, boolean useBuiltIn,
+    public void initializeResteasyProviderFactory(RuntimeValue<InjectorFactory> factory, boolean useBuiltIn,
             Set<String> providersToRegister,
             Set<String> contributedProviders) {
-        ResteasyProviderFactory clientProviderFactory = new ResteasyProviderFactoryImpl(null, true) {
+        ResteasyProviderFactory clientProviderFactory = new ResteasyProviderFactoryImpl(RuntimeType.CLIENT) {
             @Override
             public RuntimeType getRuntimeType() {
                 return RuntimeType.CLIENT;
             }
 
             @Override
-            protected void initializeUtils() {
-                clientHelper = new ClientHelper(this);
-                serverHelper = NOOPServerHelper.INSTANCE;
-            }
-
-            @Override
             public InjectorFactory getInjectorFactory() {
-                return injectorFactory.getValue();
+                return factory.getValue();
             }
         };
 
