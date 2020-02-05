@@ -81,6 +81,10 @@ public class ResteasyStandaloneRecorder {
     private static String contextPath;
 
     public void staticInit(ResteasyDeployment dep, String path, Set<String> known) {
+        startDeployment(dep, path, known);
+    }
+
+    protected static void startDeployment(ResteasyDeployment dep, String path, Set<String> known) {
         if (dep != null) {
             deployment = dep;
             deployment.start();
