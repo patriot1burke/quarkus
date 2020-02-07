@@ -3,13 +3,11 @@ package io.quarkus.resteasy.deployment;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 
-import java.lang.reflect.Modifier;
 import java.net.JarURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Optional;
@@ -17,8 +15,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.stream.Stream;
-
-import org.jboss.resteasy.spi.ResteasyDeployment;
 
 import io.quarkus.arc.deployment.BeanContainerBuildItem;
 import io.quarkus.builder.item.SimpleBuildItem;
@@ -31,8 +27,11 @@ import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.ExecutorBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.resteasy.common.deployment.JaxrsProvidersToRegisterBuildItem;
+import io.quarkus.resteasy.common.deployment.ProviderRegistrationHelper;
 import io.quarkus.resteasy.common.deployment.ResteasyInjectionReadyBuildItem;
-import io.quarkus.resteasy.runtime.standalone.ResteasyRegistrationRecorder;
+import io.quarkus.resteasy.common.runtime.ResteasyRegistrationRecorder;
+import io.quarkus.resteasy.runtime.QuarkusResteasyDeployment;
 import io.quarkus.resteasy.runtime.standalone.ResteasyStandaloneRecorder;
 import io.quarkus.resteasy.server.common.deployment.ResteasyDeploymentBuildItem;
 import io.quarkus.vertx.core.deployment.InternalWebVertxBuildItem;
@@ -63,8 +62,6 @@ public class ResteasyStandaloneBuildStep {
 
     }
 
-    static boolean USE_REGISTRATION = true;
-
     @BuildStep(loadsApplicationClasses = true)
     @Record(STATIC_INIT)
     public void staticInit(ResteasyStandaloneRecorder recorder,
@@ -73,6 +70,7 @@ public class ResteasyStandaloneBuildStep {
             ResteasyDeploymentBuildItem deployment,
             ApplicationArchivesBuildItem applicationArchivesBuildItem,
             ResteasyInjectionReadyBuildItem resteasyInjectionReady,
+            JaxrsProvidersToRegisterBuildItem jaxrsProvidersToRegisterBuildItem,
             HttpBuildTimeConfig httpConfig,
             BuildProducer<ResteasyStandaloneBuildItem> standalone) throws Exception {
         if (capabilities.isCapabilityPresent(Capabilities.SERVLET)) {
@@ -98,56 +96,19 @@ public class ResteasyStandaloneBuildStep {
                 }
                 rootPath += deploymentRootPath;
             }
-            ResteasyDeployment dep = deployment.getDeployment();
-            if (USE_REGISTRATION) {
-                cleanScannedResource(dep);
-                registration.initialize(dep.getApplicationClass());
-                DirectRegistration.registerProviders(registration, dep);
-                registration.startDeployment(dep.getScannedResourceClasses(), rootPath, knownPaths);
-            } else {
-                recorder.staticInit(dep, rootPath, knownPaths);
-            }
-            recorder.staticInit(deployment.getDeployment(), rootPath, knownPaths);
-
+            QuarkusResteasyDeployment dep = (QuarkusResteasyDeployment) deployment.getDeployment();
+            DirectRegistration.cleanScannedResource(dep);
+            dep.prune();
+            recorder.initialize(dep);
+            ProviderRegistrationHelper.registerProviders(false, registration, jaxrsProvidersToRegisterBuildItem);
+            recorder.startDeployment(rootPath, knownPaths);
         } else if (!knownPaths.isEmpty()) {
-            recorder.staticInit(null, rootPath, knownPaths);
+            recorder.setPaths(rootPath, knownPaths);
         }
 
         if (deployment != null || !knownPaths.isEmpty()) {
             standalone.produce(new ResteasyStandaloneBuildItem(deploymentRootPath));
         }
-    }
-
-    private void cleanScannedResource(ResteasyDeployment dep) throws Exception {
-        ArrayList<String> scanned = new ArrayList<>();
-        for (String res : dep.getScannedResourceClasses()) {
-            Class resource = null;
-            try {
-                resource = Class.forName(res, false, Thread.currentThread().getContextClassLoader());
-                if (resource.isInterface() || resource.isAnonymousClass()
-                        || (resource.isMemberClass() && !Modifier.isStatic(resource.getModifiers()))
-                        || !Modifier.isPublic(resource.getModifiers()))
-                    continue;
-                if (!resource.isAnnotationPresent(javax.ws.rs.Path.class)) {
-                    boolean hasPath = false;
-                    for (Class intf : resource.getInterfaces()) {
-                        if (intf.isAnnotationPresent(javax.ws.rs.Path.class)) {
-                            hasPath = true;
-                            break;
-                        }
-                    }
-                    if (!hasPath)
-                        continue;
-                }
-            } catch (ClassNotFoundException ignore) {
-                // Kojito and maybe other extensions generate resource classes that are not on classpath
-                // so just ignore
-            }
-
-            scanned.add(res);
-
-        }
-        dep.setScannedResourceClasses(scanned);
     }
 
     /**

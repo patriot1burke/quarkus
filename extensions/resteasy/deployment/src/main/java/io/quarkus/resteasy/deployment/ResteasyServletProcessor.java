@@ -24,14 +24,22 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.resteasy.common.deployment.JaxrsProvidersToRegisterBuildItem;
+import io.quarkus.resteasy.common.deployment.ProviderRegistrationHelper;
 import io.quarkus.resteasy.common.deployment.ResteasyInjectionReadyBuildItem;
+import io.quarkus.resteasy.common.runtime.ResteasyRegistrationRecorder;
 import io.quarkus.resteasy.runtime.ExceptionMapperRecorder;
+import io.quarkus.resteasy.runtime.QuarkusResteasyDeployment;
 import io.quarkus.resteasy.runtime.ResteasyFilter;
+import io.quarkus.resteasy.runtime.ResteasyServlet;
+import io.quarkus.resteasy.runtime.ResteasyServletRecorder;
+import io.quarkus.resteasy.server.common.deployment.ResteasyDeploymentBuildItem;
 import io.quarkus.resteasy.server.common.deployment.ResteasyServerConfigBuildItem;
 import io.quarkus.resteasy.server.common.deployment.ResteasyServletMappingBuildItem;
 import io.quarkus.undertow.deployment.FilterBuildItem;
 import io.quarkus.undertow.deployment.ServletBuildItem;
 import io.quarkus.undertow.deployment.ServletContextPathBuildItem;
+import io.quarkus.undertow.deployment.ServletDeploymentManagerBuildItem;
 import io.quarkus.undertow.deployment.ServletInitParamBuildItem;
 import io.quarkus.undertow.deployment.WebMetadataBuildItem;
 import io.quarkus.vertx.http.deployment.HttpRootPathBuildItem;
@@ -72,11 +80,33 @@ public class ResteasyServletProcessor {
         return null;
     }
 
+    @BuildStep(loadsApplicationClasses = true)
+    @Record(STATIC_INIT)
+    public void resteasyDeployment(Optional<ServletDeploymentManagerBuildItem> ignored, // force run after servlet init
+            Capabilities capabilities,
+            BuildProducer<FeatureBuildItem> feature,
+            ResteasyDeploymentBuildItem deployment,
+            JaxrsProvidersToRegisterBuildItem jaxrsProvidersToRegisterBuildItem,
+            ResteasyInjectionReadyBuildItem resteasyInjectionReady,
+            ResteasyServletRecorder recorder,
+            ResteasyRegistrationRecorder registration) throws Exception {
+        if (!capabilities.isCapabilityPresent(Capabilities.SERVLET) || deployment == null) {
+            return;
+        }
+        feature.produce(new FeatureBuildItem(FeatureBuildItem.RESTEASY));
+        QuarkusResteasyDeployment dep = (QuarkusResteasyDeployment) deployment.getDeployment();
+        DirectRegistration.cleanScannedResource(dep);
+        dep.prune();
+        recorder.initialize(dep);
+        ProviderRegistrationHelper.registerProviders(false, registration, jaxrsProvidersToRegisterBuildItem);
+        recorder.startDeployment(deployment.getRootPath());
+
+    }
+
     @BuildStep
     public void build(
             Capabilities capabilities,
             Optional<ResteasyServerConfigBuildItem> resteasyServerConfig,
-            BuildProducer<FeatureBuildItem> feature,
             BuildProducer<FilterBuildItem> filter,
             BuildProducer<ServletBuildItem> servlet,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
@@ -86,7 +116,6 @@ public class ResteasyServletProcessor {
         if (!capabilities.isCapabilityPresent(Capabilities.SERVLET)) {
             return;
         }
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.RESTEASY));
 
         if (resteasyServerConfig.isPresent()) {
             reflectiveClass.produce(new ReflectiveClassBuildItem(false, false,
@@ -103,7 +132,7 @@ public class ResteasyServletProcessor {
                 reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, ResteasyFilter.class.getName()));
             } else {
                 String mappingPath = getMappingPath(path);
-                servlet.produce(ServletBuildItem.builder(JAX_RS_SERVLET_NAME, HttpServlet30Dispatcher.class.getName())
+                servlet.produce(ServletBuildItem.builder(JAX_RS_SERVLET_NAME, ResteasyServlet.class.getName())
                         .setLoadOnStartup(1).addMapping(mappingPath).setAsyncSupported(true).build());
                 reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, HttpServlet30Dispatcher.class.getName()));
             }

@@ -67,8 +67,10 @@ import io.quarkus.gizmo.ResultHandle;
 import io.quarkus.restclient.runtime.RestClientBase;
 import io.quarkus.restclient.runtime.RestClientRecorder;
 import io.quarkus.resteasy.common.deployment.JaxrsProvidersToRegisterBuildItem;
+import io.quarkus.resteasy.common.deployment.ProviderRegistrationHelper;
 import io.quarkus.resteasy.common.deployment.ResteasyDotNames;
 import io.quarkus.resteasy.common.deployment.ResteasyInjectionReadyBuildItem;
+import io.quarkus.resteasy.common.runtime.ResteasyRegistrationRecorder;
 
 class RestClientProcessor {
     private static final Logger log = Logger.getLogger(RestClientProcessor.class);
@@ -319,16 +321,12 @@ class RestClientProcessor {
             JaxrsProvidersToRegisterBuildItem jaxrsProvidersToRegisterBuildItem,
             CombinedIndexBuildItem combinedIndexBuildItem,
             ResteasyInjectionReadyBuildItem injectorFactory,
-            RestClientRecorder restClientRecorder) {
+            ResteasyRegistrationRecorder registration,
+            RestClientRecorder restClientRecorder) throws Exception {
 
-        restClientRecorder.initializeResteasyProviderFactory(injectorFactory.getInjectorFactory(),
-                jaxrsProvidersToRegisterBuildItem.useBuiltIn(),
-                jaxrsProvidersToRegisterBuildItem.getProviders(), jaxrsProvidersToRegisterBuildItem.getContributedProviders());
-
-        // register the providers for reflection
-        for (String providerToRegister : jaxrsProvidersToRegisterBuildItem.getProviders()) {
-            reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, providerToRegister));
-        }
+        restClientRecorder.initializeFactory(injectorFactory.getInjectorFactory());
+        ProviderRegistrationHelper.registerProviders(true, registration, jaxrsProvidersToRegisterBuildItem);
+        restClientRecorder.bindFactory();
 
         // now we register all values of @RegisterProvider for constructor reflection
 

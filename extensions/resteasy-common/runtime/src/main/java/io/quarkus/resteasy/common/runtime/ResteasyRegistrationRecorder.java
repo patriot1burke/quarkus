@@ -1,9 +1,7 @@
-package io.quarkus.resteasy.runtime.standalone;
+package io.quarkus.resteasy.common.runtime;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import javax.ws.rs.RuntimeType;
 import javax.ws.rs.client.ClientRequestFilter;
@@ -20,6 +18,7 @@ import javax.ws.rs.ext.MessageBodyReader;
 import javax.ws.rs.ext.MessageBodyWriter;
 import javax.ws.rs.ext.ParamConverterProvider;
 import javax.ws.rs.ext.ReaderInterceptor;
+import javax.ws.rs.ext.WriterInterceptor;
 
 import org.jboss.resteasy.core.providerfactory.ResteasyProviderFactoryImpl;
 import org.jboss.resteasy.core.providerfactory.SortedKey;
@@ -32,34 +31,19 @@ import org.jboss.resteasy.spi.InjectorFactory;
 import org.jboss.resteasy.spi.StringParameterUnmarshaller;
 import org.jboss.resteasy.spi.metadata.ResourceClassProcessor;
 
-import io.quarkus.resteasy.common.runtime.QuarkusInjectorFactory;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
 
 @Recorder
 public class ResteasyRegistrationRecorder {
 
-    private static QuarkusResteasyDeployment deployment;
-
-    public void initialize(String application) {
-        deployment = new QuarkusResteasyDeployment();
-        deployment.setApplicationClass(application);
-        deployment.setInjectorFactoryClass(QuarkusInjectorFactory.class.getName());
-        deployment.initialize();
-    }
-
-    public void startDeployment(List<String> resourceClasses, String path, Set<String> known) {
-        deployment.setResourceClasses(resourceClasses);
-        ResteasyStandaloneRecorder.startDeployment(deployment, path, known);
-        deployment = null;
-    }
+    public static ResteasyProviderFactoryImpl providerFactory;
 
     public RuntimeValue<MediaType> createMediaType(String mediaType) {
         return new RuntimeValue<MediaType>(MediaType.valueOf(mediaType));
     }
 
     public RuntimeValue<SortedKey> createSortedKey(Class providerClass, int priority, Class<?> template, boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         Object provider = Utils.createProviderInstance(providerFactory, providerClass);
         Utils.injectProperties(providerFactory, providerClass, provider);
         SortedKey key = new SortedKey(provider, builtin, template, priority);
@@ -67,7 +51,6 @@ public class ResteasyRegistrationRecorder {
     }
 
     public RuntimeValue<Object> createProviderInstance(Class providerClass) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         Object providerInstance = Utils.createProviderInstance(providerFactory, providerClass);
         Utils.injectProperties(providerFactory, providerClass, providerInstance);
         return new RuntimeValue<>(providerInstance);
@@ -85,9 +68,13 @@ public class ResteasyRegistrationRecorder {
         map.put(contract, priority);
     }
 
+    public void registerProvider(String classname) throws Exception {
+        Class providerClass = Thread.currentThread().getContextClassLoader().loadClass(classname);
+        providerFactory.registerProvider(providerClass);
+    }
+
     public void registerMessageBodyReader(RuntimeType runtimeType, Class<?> providerClass, RuntimeValue<MediaType> mediaType,
             RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addRegularMBR(mediaType.getValue(), sortedKey);
@@ -98,7 +85,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyReaderWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = (SortedKey<MessageBodyReader>) key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addWildcardMBR(sortedKey);
@@ -109,7 +95,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyReaderSubtypeWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addSubtypeWildMBR(mediaType.getValue(), sortedKey);
@@ -120,7 +105,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyReaderSubtypeWildcardComposite(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, String baseSubtype, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addWildcardCompositeMBR(mediaType.getValue(), sortedKey, baseSubtype);
@@ -131,7 +115,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyReaderSubtypeCompositeWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, String baseSubtype, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addCompositeWildcardMBR(mediaType.getValue(), sortedKey, baseSubtype);
@@ -142,7 +125,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyWriter(RuntimeType runtimeType, Class<?> providerClass, RuntimeValue<MediaType> mediaType,
             RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addRegularMBW(mediaType.getValue(), sortedKey);
@@ -153,7 +135,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyWriterWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addWildcardMBW(sortedKey);
@@ -164,7 +145,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyWriterSubtypeWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addSubtypeWildMBW(mediaType.getValue(), sortedKey);
@@ -175,7 +155,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyWriterSubtypeWildcardComposite(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, String baseSubtype, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addWildcardCompositeMBW(mediaType.getValue(), sortedKey, baseSubtype);
@@ -186,7 +165,6 @@ public class ResteasyRegistrationRecorder {
 
     public void registerMessageBodyWriterSubtypeCompositeWildcard(RuntimeType runtimeType, Class<?> providerClass,
             RuntimeValue<MediaType> mediaType, String baseSubtype, RuntimeValue<SortedKey> key) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = key.getValue();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addCompositeWildcardMBW(mediaType.getValue(), sortedKey, baseSubtype);
@@ -196,7 +174,6 @@ public class ResteasyRegistrationRecorder {
     }
 
     public void registerReaderInterceptor(RuntimeType runtimeType, Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addReaderInterceptor(providerClass, priority);
         if (runtimeType == null || runtimeType == RuntimeType.SERVER)
@@ -205,16 +182,14 @@ public class ResteasyRegistrationRecorder {
     }
 
     public void registerWriterInterceptor(RuntimeType runtimeType, Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
-            providerFactory.getClientHelper().addReaderInterceptor(providerClass, priority);
+            providerFactory.getClientHelper().addWriterInterceptor(providerClass, priority);
         if (runtimeType == null || runtimeType == RuntimeType.SERVER)
-            providerFactory.getServerHelper().addReaderInterceptor(providerClass, priority);
-        processContracts(providerClass, providerFactory, priority, ReaderInterceptor.class);
+            providerFactory.getServerHelper().addWriterInterceptor(providerClass, priority);
+        processContracts(providerClass, providerFactory, priority, WriterInterceptor.class);
     }
 
     public void registerDynamicFeature(RuntimeType runtimeType, Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
             providerFactory.getClientHelper().addDynamicFeature(providerClass);
         if (runtimeType == null || runtimeType == RuntimeType.SERVER)
@@ -223,104 +198,87 @@ public class ResteasyRegistrationRecorder {
     }
 
     public void registerContainerRequestFilter(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getServerHelper().addContainerRequestFilter(providerClass, priority);
         processContracts(providerClass, providerFactory, priority, ContainerRequestFilter.class);
     }
 
     public void registerContainerResponseFilter(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getServerHelper().addContainerResponseFilter(providerClass, priority);
         processContracts(providerClass, providerFactory, priority, ContainerResponseFilter.class);
     }
 
     public void registerAsyncResponseProvider(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getServerHelper().addAsyncResponseProvider(providerClass);
         processContracts(providerClass, providerFactory, priority, AsyncResponseProvider.class);
     }
 
     public void registerAsyncStreamProvider(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getServerHelper().addAsyncStreamProvider(providerClass);
         processContracts(providerClass, providerFactory, priority, AsyncStreamProvider.class);
 
     }
 
     public void registerExceptionMapper(Class providerClass, int priority, boolean builtIn) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getServerHelper().addExceptionMapper(providerClass, builtIn);
         processContracts(providerClass, providerFactory, priority, ExceptionMapper.class);
     }
 
     public void registerClientRequestFilter(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getClientHelper().addClientRequestFilter(providerClass, priority);
         processContracts(providerClass, providerFactory, priority, ClientRequestFilter.class);
     }
 
     public void registerClientResponseFilter(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getClientHelper().addClientResponseFilter(providerClass, priority);
         processContracts(providerClass, providerFactory, priority, ClientResponseFilter.class);
     }
 
     public void registerAsyncClientResponse(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getClientHelper().addAsyncClientResponseProvider(providerClass);
         processContracts(providerClass, providerFactory, priority, AsyncClientResponseProvider.class);
     }
 
     public void registerReactiveClass(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.getClientHelper().addReactiveClass(providerClass);
         processContracts(providerClass, providerFactory, priority, RxInvokerProvider.class);
     }
 
     public void registerParamConverter(Class providerClass, int priority, boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addParameterConverterProvider(providerClass, builtin, priority);
         processContracts(providerClass, providerFactory, priority, ParamConverterProvider.class);
     }
 
     public void registerContextResolver(Class providerClass, int priority, boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addContextResolver(providerClass, builtin, priority);
         processContracts(providerClass, providerFactory, priority, ContextResolver.class);
     }
 
     public void registerContextInjector(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addContextInjector(providerClass);
         processContracts(providerClass, providerFactory, priority, ContextInjector.class);
     }
 
     public void registerStringParameterUnmarshaller(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addStringParameterUnmarshaller(providerClass);
         processContracts(providerClass, providerFactory, priority, StringParameterUnmarshaller.class);
     }
 
     public void registerInjectorFactory(Class providerClass) throws Exception {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addInjectorFactory(providerClass);
         processContracts(providerClass, providerFactory, 0, InjectorFactory.class);
     }
 
     public void registerFeature(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addFeature(providerClass);
         processContracts(providerClass, providerFactory, priority, Feature.class);
     }
 
     public void registerResourceClassProcessor(Class providerClass, int priority) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addResourceClassProcessor(providerClass, priority);
         processContracts(providerClass, providerFactory, priority, ResourceClassProcessor.class);
     }
 
     public void registerHeaderDelegate(Class providerClass) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         providerFactory.addHeaderDelegate(providerClass);
     }
 
@@ -333,7 +291,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = new SortedKey<>((MessageBodyReader) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -349,7 +306,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = new SortedKey<>((MessageBodyReader) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -366,7 +322,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = new SortedKey<>((MessageBodyReader) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -384,7 +339,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = new SortedKey<>((MessageBodyReader) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -402,7 +356,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyReader> sortedKey = new SortedKey<>((MessageBodyReader) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -419,7 +372,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = new SortedKey<>((MessageBodyWriter) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -435,7 +387,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = new SortedKey<>((MessageBodyWriter) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -452,7 +403,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = new SortedKey<>((MessageBodyWriter) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -470,7 +420,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = new SortedKey<>((MessageBodyWriter) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)
@@ -488,7 +437,6 @@ public class ResteasyRegistrationRecorder {
             int priority,
             Class<?> template,
             boolean builtin) {
-        ResteasyProviderFactoryImpl providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
         SortedKey<MessageBodyWriter> sortedKey = new SortedKey<>((MessageBodyWriter) provider.getValue(), builtin, template,
                 priority);
         if (runtimeType == null || runtimeType == RuntimeType.CLIENT)

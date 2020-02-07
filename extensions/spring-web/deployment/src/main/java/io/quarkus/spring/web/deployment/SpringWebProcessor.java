@@ -15,7 +15,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.ws.rs.core.MediaType;
-import javax.ws.rs.ext.Providers;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
@@ -44,9 +43,7 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveHierarchyIgnoreWarningBuildItem;
-import io.quarkus.deployment.util.ServiceUtil;
 import io.quarkus.gizmo.ClassOutput;
-import io.quarkus.resteasy.common.deployment.ResteasyCommonProcessor;
 import io.quarkus.resteasy.common.spi.ResteasyJaxrsProviderBuildItem;
 import io.quarkus.resteasy.runtime.ExceptionMapperRecorder;
 import io.quarkus.resteasy.runtime.NonJaxRsClassMappings;
@@ -257,72 +254,8 @@ public class SpringWebProcessor {
     @BuildStep
     public void registerProviders(BeanArchiveIndexBuildItem beanArchiveIndexBuildItem,
             BuildProducer<ResteasyJaxrsProviderBuildItem> providersProducer) throws IOException {
-
-        //TODO only read this information once since it is exactly the same in ResteasyCommonProcessor#setupProviders
-        final Set<String> availableProviders = ServiceUtil.classNamesNamedIn(getClass().getClassLoader(),
-                "META-INF/services/" + Providers.class.getName());
-
-        final MediaTypeMap<String> categorizedReaders = new MediaTypeMap<>();
-        final MediaTypeMap<String> categorizedWriters = new MediaTypeMap<>();
-        final MediaTypeMap<String> categorizedContextResolvers = new MediaTypeMap<>();
-        final Set<String> otherProviders = new HashSet<>();
-
-        ResteasyCommonProcessor.categorizeProviders(availableProviders, categorizedReaders, categorizedWriters,
-                categorizedContextResolvers,
-                otherProviders);
-
-        boolean useAllAvailable = false;
-        Set<String> providersToRegister = new HashSet<>();
-
-        OUTER: for (DotName mappingClass : MAPPING_ANNOTATIONS) {
-            final Collection<AnnotationInstance> instances = beanArchiveIndexBuildItem.getIndex().getAnnotations(mappingClass);
-            for (AnnotationInstance instance : instances) {
-                if (collectProviders(providersToRegister, categorizedWriters, instance, "produces")) {
-                    useAllAvailable = true;
-                    break OUTER;
-                }
-                if (collectProviders(providersToRegister, categorizedContextResolvers, instance, "produces")) {
-                    useAllAvailable = true;
-                    break OUTER;
-                }
-
-                if (collectProviders(providersToRegister, categorizedReaders, instance, "consumes")) {
-                    useAllAvailable = true;
-                    break OUTER;
-                }
-            }
-        }
-
-        if (useAllAvailable) {
-            providersToRegister = availableProviders;
-        } else {
-            // for Spring Web we register all the json providers by default because using "produces" in @RequestMapping
-            // and friends is optional
-            providersToRegister.addAll(categorizedWriters.getPossible(MediaType.APPLICATION_JSON_TYPE));
-            // we also need to register the custom Spring related providers
-            providersToRegister.add(ResponseEntityFeature.class.getName());
-            providersToRegister.add(ResponseStatusFeature.class.getName());
-        }
-
-        for (String provider : providersToRegister) {
-            providersProducer.produce(new ResteasyJaxrsProviderBuildItem(provider));
-        }
-    }
-
-    private boolean collectProviders(Set<String> providersToRegister, MediaTypeMap<String> categorizedProviders,
-            AnnotationInstance instance, String annotationValueName) {
-        final AnnotationValue producesValue = instance.value(annotationValueName);
-        if (producesValue != null) {
-            for (String value : producesValue.asStringArray()) {
-                MediaType mediaType = MediaType.valueOf(value);
-                if (MediaType.WILDCARD_TYPE.equals(mediaType)) {
-                    // exit early if we have the wildcard type
-                    return true;
-                }
-                providersToRegister.addAll(categorizedProviders.getPossible(mediaType));
-            }
-        }
-        return false;
+        providersProducer.produce(new ResteasyJaxrsProviderBuildItem(ResponseEntityFeature.class.getName()));
+        providersProducer.produce(new ResteasyJaxrsProviderBuildItem(ResponseStatusFeature.class.getName()));
     }
 
     @BuildStep(loadsApplicationClasses = true)

@@ -8,11 +8,13 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import org.jboss.resteasy.spi.ResteasyDeployment;
+import org.jboss.resteasy.core.providerfactory.ResteasyProviderFactoryImpl;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.quarkus.arc.runtime.BeanContainer;
+import io.quarkus.resteasy.common.runtime.ResteasyRegistrationRecorder;
+import io.quarkus.resteasy.runtime.QuarkusResteasyDeployment;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
@@ -76,19 +78,23 @@ public class ResteasyStandaloneRecorder {
         hotDeploymentResourcePaths = resources;
     }
 
-    private static ResteasyDeployment deployment;
+    private static QuarkusResteasyDeployment deployment;
     private static Set<String> knownPaths;
     private static String contextPath;
 
-    public void staticInit(ResteasyDeployment dep, String path, Set<String> known) {
-        startDeployment(dep, path, known);
+    public void initialize(QuarkusResteasyDeployment dep) {
+        deployment = dep;
+        deployment.initialize();
+        ResteasyRegistrationRecorder.providerFactory = (ResteasyProviderFactoryImpl) deployment.getProviderFactory();
     }
 
-    protected static void startDeployment(ResteasyDeployment dep, String path, Set<String> known) {
-        if (dep != null) {
-            deployment = dep;
-            deployment.start();
-        }
+    public void startDeployment(String path, Set<String> known) {
+        deployment.start();
+        setPaths(path, known);
+        ResteasyRegistrationRecorder.providerFactory = null;
+    }
+
+    public void setPaths(String path, Set<String> known) {
         knownPaths = known;
         contextPath = path;
     }

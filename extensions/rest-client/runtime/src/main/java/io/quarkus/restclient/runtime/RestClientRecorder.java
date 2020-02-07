@@ -7,10 +7,10 @@ import javax.ws.rs.RuntimeType;
 import org.eclipse.microprofile.rest.client.spi.RestClientBuilderResolver;
 import org.jboss.resteasy.core.providerfactory.ResteasyProviderFactoryImpl;
 import org.jboss.resteasy.microprofile.client.RestClientBuilderImpl;
-import org.jboss.resteasy.plugins.providers.RegisterBuiltin;
 import org.jboss.resteasy.spi.InjectorFactory;
 import org.jboss.resteasy.spi.ResteasyProviderFactory;
 
+import io.quarkus.resteasy.common.runtime.ResteasyRegistrationRecorder;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
 
@@ -24,10 +24,8 @@ public class RestClientRecorder {
         RestClientBuilderImpl.setSslEnabled(sslEnabled);
     }
 
-    public void initializeResteasyProviderFactory(RuntimeValue<InjectorFactory> factory, boolean useBuiltIn,
-            Set<String> providersToRegister,
-            Set<String> contributedProviders) {
-        ResteasyProviderFactory clientProviderFactory = new ResteasyProviderFactoryImpl(RuntimeType.CLIENT) {
+    public void initializeFactory(RuntimeValue<InjectorFactory> factory) {
+        ResteasyRegistrationRecorder.providerFactory = new ResteasyProviderFactoryImpl(RuntimeType.CLIENT) {
             @Override
             public RuntimeType getRuntimeType() {
                 return RuntimeType.CLIENT;
@@ -38,17 +36,12 @@ public class RestClientRecorder {
                 return factory.getValue();
             }
         };
+    }
 
-        if (useBuiltIn) {
-            RegisterBuiltin.register(clientProviderFactory);
-            registerProviders(clientProviderFactory, contributedProviders, false);
-        } else {
-            providersToRegister.removeAll(contributedProviders);
-            registerProviders(clientProviderFactory, providersToRegister, true);
-            registerProviders(clientProviderFactory, contributedProviders, false);
-        }
-
+    public void bindFactory() {
+        ResteasyProviderFactoryImpl clientProviderFactory = ResteasyRegistrationRecorder.providerFactory;
         RestClientBuilderImpl.setProviderFactory(clientProviderFactory);
+        ResteasyRegistrationRecorder.providerFactory = null;
     }
 
     private static void registerProviders(ResteasyProviderFactory clientProviderFactory, Set<String> providersToRegister,
