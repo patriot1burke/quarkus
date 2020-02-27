@@ -4,7 +4,6 @@ public class GreetingTemplate {
     private String greeting;
     private String punctuation;
 
-
     public String getGreeting() {
         return greeting;
     }

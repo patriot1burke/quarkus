@@ -1,11 +1,12 @@
 package io.quarkus.funqy.test;
 
-import io.quarkus.funqy.Funq;
-
 import javax.inject.Inject;
 
+import io.quarkus.funqy.Funq;
+
 public class GreetingFunctions {
-    @Inject GreetingService service;
+    @Inject
+    GreetingService service;
 
     @Funq("template")
     public void greetingTemplate(GreetingTemplate template) {
@@ -21,6 +22,5 @@ public class GreetingFunctions {
         greeting.setName(name);
         return greeting;
     }
-
 
 }

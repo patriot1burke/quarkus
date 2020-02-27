@@ -62,24 +62,18 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
             request.fail(404);
             return;
         }
-        log.info("**** PATH: " + path);
         if (!path.startsWith(rootPath)) {
             request.fail(404);
             return;
         }
         path = path.substring(rootPath.length());
 
-        log.info("---- Matching path: " + path);
-
         FunctionInvoker invoker = FunctionRecorder.registry.matchInvoker(path);
 
         if (invoker == null) {
-            log.info("  COULD NOT FIND INVOKER: " + path);
             request.fail(404);
             return;
         }
-
-        log.info("Found invoker");
 
         if (request.request().method() != HttpMethod.POST) {
             request.fail(405);
