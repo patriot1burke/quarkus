@@ -54,6 +54,7 @@
         <module>smallrye-openapi-common</module>
         <module>smallrye-openapi</module>
         <module>swagger-ui</module>
+        <module>funqy/funqy-http</module>
 
         <!-- Reactive -->
         <module>mutiny</module>
