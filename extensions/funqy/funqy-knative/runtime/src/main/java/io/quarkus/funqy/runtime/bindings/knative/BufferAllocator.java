@@ -1,4 +1,4 @@
-package io.quarkus.funqy.bindings.http;
+package io.quarkus.funqy.runtime.bindings.knative;
 
 import io.netty.buffer.ByteBuf;
 

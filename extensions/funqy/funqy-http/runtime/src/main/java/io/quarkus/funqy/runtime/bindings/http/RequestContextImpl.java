@@ -1,4 +1,4 @@
-package io.quarkus.funqy.bindings.http;
+package io.quarkus.funqy.runtime.bindings.http;
 
 import java.util.HashMap;
 import java.util.Map;

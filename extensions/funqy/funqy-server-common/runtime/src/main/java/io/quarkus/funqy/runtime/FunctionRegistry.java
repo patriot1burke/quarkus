@@ -11,7 +11,7 @@ public class FunctionRegistry {
     public void register(Class clz, String methodName, String functionName) {
         for (Method m : clz.getMethods()) {
             if (m.getName().equals(methodName)) {
-                functions.put(functionName, new FunctionInvoker(clz, m));
+                functions.put(functionName, new FunctionInvoker(functionName, clz, m));
             }
         }
     }

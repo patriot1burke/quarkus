@@ -1,4 +1,4 @@
-package io.quarkus.funqy.bindings.http;
+package io.quarkus.funqy.runtime.bindings.knative;
 
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -25,24 +25,22 @@ import io.vertx.ext.web.RoutingContext;
  * Provides the runtime methods to bootstrap Quarkus Funq
  */
 @Recorder
-public class FunqyHttpBindingRecorder {
-    private static String contextPath;
+public class FunqyKnativeBindingRecorder {
     private static ObjectMapper objectMapper;
+    private static FunctionInvoker invoker;
 
-    public void init(String rootPath) {
-        contextPath = rootPath;
+    public void init(String function) {
         objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .configure(MapperFeature.ACCEPT_CASE_INSENSITIVE_PROPERTIES, true);
-        for (FunctionInvoker invoker : FunctionRecorder.registry.invokers()) {
-            if (invoker.hasInput()) {
-                ObjectReader reader = objectMapper.readerFor(invoker.getInputType());
-                invoker.getBindingContext().put(ObjectReader.class.getName(), reader);
-            }
-            if (invoker.hasOutput()) {
-                ObjectWriter writer = objectMapper.writerFor(invoker.getOutputType());
-                invoker.getBindingContext().put(ObjectWriter.class.getName(), writer);
-            }
+        invoker = FunctionRecorder.registry.matchInvoker(function);
+        if (invoker.hasInput()) {
+            ObjectReader reader = objectMapper.readerFor(invoker.getInputType());
+            invoker.getBindingContext().put(ObjectReader.class.getName(), reader);
+        }
+        if (invoker.hasOutput()) {
+            ObjectWriter writer = objectMapper.writerFor(invoker.getOutputType());
+            invoker.getBindingContext().put(ObjectWriter.class.getName(), writer);
         }
     }
 
@@ -56,6 +54,7 @@ public class FunqyHttpBindingRecorder {
             public void run() {
                 FunctionConstructor.CONTAINER = null;
                 FunctionRecorder.registry = null;
+                invoker = null;
                 objectMapper = null;
             }
         });
@@ -74,7 +73,7 @@ public class FunqyHttpBindingRecorder {
 
     public Handler<RoutingContext> vertxRequestHandler(RuntimeValue<Vertx> vertx,
             BeanContainer beanContainer, Executor executor) {
-        return new VertxRequestHandler(vertx.getValue(), beanContainer, contextPath, executor);
+        return new VertxRequestHandler(vertx.getValue(), beanContainer, invoker, objectMapper, executor);
     }
 
 }

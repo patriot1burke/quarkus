@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class FunctionInvoker {
+    protected String name;
     protected Class targetClass;
     protected Method method;
     protected FunctionConstructor constructor;
@@ -17,7 +18,8 @@ public class FunctionInvoker {
     protected Class outputType;
     protected Map<String, Object> bindingContext = new ConcurrentHashMap<>();
 
-    public FunctionInvoker(Class targetClass, Method method) {
+    public FunctionInvoker(String name, Class targetClass, Method method) {
+        this.name = name;
         this.targetClass = targetClass;
         this.method = method;
         if (method.getParameterCount() > 0) {
@@ -63,6 +65,10 @@ public class FunctionInvoker {
 
     public boolean hasOutput() {
         return outputType != null;
+    }
+
+    public String getName() {
+        return name;
     }
 
     public void invoke(FunqyServerRequest request, FunqyServerResponse response) {
