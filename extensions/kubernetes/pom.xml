@@ -14,8 +14,8 @@
     <name>Quarkus - Kubernetes</name>
     <packaging>pom</packaging>
     <modules>
-        <module>deployment</module>
-        <module>runtime</module>
+        <module>vanilla</module>
+        <module>openshift</module>
         <module>spi</module>
     </modules>
 </project>

@@ -32,8 +32,9 @@ All submissions, including submissions by project members, need to be reviewed b
 
 ### Continuous Integration
 
-Because we are all humans, the project uses a continuous integration approach and each pull request triggers a full build.
-Please make sure to monitor the output of the build and act accordingly.
+Because we are all humans, and to ensure Quarkus is stable for everyone, all changes must go through Quarkus continuous integration. Quarkus CI is based on GitHub Actions, which means that everyone has the ability to automatically execute CI in their forks as part of the process of making changes. We ask that all non-trivial changes go through this process, so that the contributor gets immediate feedback, while at the same time keeping our CI fast and healthy for everyone.
+
+The process requires only one additional step to enable Actions on your fork (clicking the green button in the actions tab). [See the full video walkthrough](https://youtu.be/egqbx-Q-Cbg) for more details on how to do this.
 
 ### Tests and documentation are not optional
 
@@ -98,11 +99,13 @@ select the `eclipse.importorder` file as the import order config file.
 
 * Clone the repository: `git clone https://github.com/quarkusio/quarkus.git`
 * Navigate to the directory: `cd quarkus`
+* Set Maven heap to 1.5GB `export MAVEN_OPTS="-Xmx1563m"`
 * Invoke `./mvnw clean install` from the root directory
 
 ```bash
 git clone https://github.com/quarkusio/quarkus.git
 cd quarkus
+export MAVEN_OPTS="-Xmx1563m"
 ./mvnw clean install
 # Wait... success!
 ```
@@ -148,6 +151,10 @@ module.
 This project is an open source project, please act responsibly, be nice, polite and enjoy!
 
 ## Frequently Asked Questions
+
+* The Maven build fails with `OutOfMemoryException`
+
+Set Maven options to use 1.5GB of heap: `export MAVEN_OPTS="-Xmx1563m"`.
 
 * IntelliJ fails to import Quarkus Maven project with `java.lang.OutOfMemoryError: GC overhead limit exceeded` 
 

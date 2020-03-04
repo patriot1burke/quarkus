@@ -67,13 +67,13 @@
         <asm.version>7.3.1</asm.version>
         <commons-io.version>2.6</commons-io.version>
         <jboss-metadata-web.version>11.0.0.Final</jboss-metadata-web.version>
-        <maven-core.version>3.5.4</maven-core.version>
-        <maven-resolver.version>1.1.1</maven-resolver.version>
-        <maven-toolchain.version>3.0-alpha-2</maven-toolchain.version>
+        <maven-core.version>3.6.3</maven-core.version>
+        <maven-resolver.version>1.4.1</maven-resolver.version>
+        <maven-toolchain.version>3.0.0</maven-toolchain.version>
         <guava.version>27.0.1-jre</guava.version>
-        <plexus-utils.version>3.0.24</plexus-utils.version>
-        <maven-plugin-annotations.version>3.5.2</maven-plugin-annotations.version>
-        <plexus-component-annotations.version>1.7.1</plexus-component-annotations.version>
+        <plexus-utils.version>3.2.1</plexus-utils.version>
+        <maven-plugin-annotations.version>3.6.0</maven-plugin-annotations.version>
+        <plexus-component-annotations.version>2.1.0</plexus-component-annotations.version>
         <!-- What we actually depend on for the annotations, as latest Graal is not available in Maven fast enough: -->
         <graal-sdk.version>19.3.1</graal-sdk.version>
         <gizmo.version>1.0.2.Final</gizmo.version>
@@ -130,7 +130,7 @@
         <axle-client.version>0.0.13</axle-client.version>
         <mutiny-client.version>0.0.13</mutiny-client.version>
         <kafka2.version>2.4.0</kafka2.version>
-        <debezium.version>1.0.0.Final</debezium.version>
+        <debezium.version>1.0.2.Final</debezium.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <!-- Scala is used by Kafka so we need to choose a compatible version -->
         <scala.version>2.12.9</scala.version>
@@ -157,8 +157,9 @@
         <mongo-reactivestreams-client.version>1.13.0</mongo-reactivestreams-client.version>
         <mongo-crypt.version>1.0.0</mongo-crypt.version>
         <artemis.version>2.11.0</artemis.version>
+        <proton-j.version>0.33.2</proton-j.version>
         <okhttp.version>3.14.6</okhttp.version>
-        <sentry.version>1.7.28</sentry.version>
+        <sentry.version>1.7.30</sentry.version>
         <!-- Used for integration tests, to make sure webjars work-->
         <bootstrap.version>3.1.0</bootstrap.version>
         <subethasmtp.version>3.1.7</subethasmtp.version>
@@ -340,6 +341,16 @@
             <dependency>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-config-yaml</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-datasource-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-datasource</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -630,6 +641,11 @@
             </dependency>
             <dependency>
                 <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-reactive-datasource</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-reactive-pg-client</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -746,6 +762,11 @@
             <dependency>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-kubernetes</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-openshift</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -1474,6 +1495,16 @@
                 <groupId>org.apache.activemq</groupId>
                 <artifactId>artemis-server</artifactId>
                 <version>${artemis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.activemq</groupId>
+                <artifactId>artemis-amqp-protocol</artifactId>
+                <version>${artemis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.qpid</groupId>
+                <artifactId>proton-j</artifactId>
+                <version>${proton-j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
