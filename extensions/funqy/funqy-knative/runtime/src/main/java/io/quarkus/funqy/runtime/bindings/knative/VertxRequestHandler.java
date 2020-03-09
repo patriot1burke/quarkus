@@ -86,7 +86,7 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
 
         } else {
             routingContext.fail(406);
-            log.error("Illegal media type");
+            log.error("Illegal media type:" + mediaType);
             return;
         }
     }

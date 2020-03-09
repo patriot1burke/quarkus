@@ -1,6 +1,7 @@
 package io.quarkus.funqy.test;
 
-import io.restassured.parsing.Parser;
+import static org.hamcrest.Matchers.*;
+
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Test;
@@ -8,8 +9,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
 import io.restassured.RestAssured;
-
-import static org.hamcrest.Matchers.*;
+import io.restassured.parsing.Parser;
 
 public class GreetTest {
     @RegisterExtension
@@ -47,12 +47,13 @@ public class GreetTest {
     }
 
     static final String event = "{ \"id\" : \"1234\", " +
-                                "  \"specversion\": \"1.0\", " +
-                                "  \"source\": \"/foo\", " +
-                                "  \"type\": \"sometype\", " +
-                                "  \"datacontenttype\": \"application/json\", " +
-                                "  \"data\": { \"name\": \"Bill\" } " +
-                                "}";
+            "  \"specversion\": \"1.0\", " +
+            "  \"source\": \"/foo\", " +
+            "  \"type\": \"sometype\", " +
+            "  \"datacontenttype\": \"application/json\", " +
+            "  \"data\": { \"name\": \"Bill\" } " +
+            "}";
+
     @Test
     public void testStructured() {
         RestAssured.given().contentType("application/cloudevents+json")
@@ -66,8 +67,7 @@ public class GreetTest {
                 .body("source", equalTo("dev.knative.greet"))
                 .body("datacontenttype", equalTo("application/json"))
                 .body("data.name", equalTo("Bill"))
-                .body("data.message", equalTo("Hello Bill!"))
-                ;
+                .body("data.message", equalTo("Hello Bill!"));
     }
 
 }

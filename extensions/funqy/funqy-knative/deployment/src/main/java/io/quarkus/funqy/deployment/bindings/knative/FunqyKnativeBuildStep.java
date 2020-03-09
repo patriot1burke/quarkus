@@ -66,7 +66,8 @@ public class FunqyKnativeBuildStep {
                 }
             }
             if (!found) {
-                throw new BuildException("Cannot find function specified by quarkus.funqy.knative.export ", Collections.emptyList());
+                throw new BuildException("Cannot find function specified by quarkus.funqy.knative.export ",
+                        Collections.emptyList());
 
             }
 
@@ -76,7 +77,8 @@ public class FunqyKnativeBuildStep {
                 function = functions.get(0).getMethodName();
             }
         } else {
-            throw new BuildException("Too many functions in deployment, use quarkus.funqy.knative.export to narrow it", Collections.emptyList());
+            throw new BuildException("Too many functions in deployment, use quarkus.funqy.knative.export to narrow it",
+                    Collections.emptyList());
         }
         binding.init(function);
         return new RootpathBuildItem("/");
