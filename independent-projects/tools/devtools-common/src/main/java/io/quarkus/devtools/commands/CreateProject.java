@@ -18,6 +18,7 @@ import io.quarkus.devtools.commands.handlers.CreateProjectCommandHandler;
 import io.quarkus.devtools.project.BuildTool;
 import io.quarkus.devtools.project.QuarkusProject;
 import io.quarkus.devtools.project.codegen.SourceType;
+import io.quarkus.devtools.project.codegen.rest.BasicRestProjectGenerator;
 import io.quarkus.platform.descriptor.QuarkusPlatformDescriptor;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -44,6 +45,7 @@ public class CreateProject {
     private final QuarkusPlatformDescriptor platformDescr;
     private String javaTarget;
     private BuildTool buildTool = BuildTool.MAVEN;
+    private String projectTemplate = BasicRestProjectGenerator.NAME;
 
     private Map<String, Object> values = new HashMap<>();
 
@@ -79,6 +81,11 @@ public class CreateProject {
 
     public CreateProject javaTarget(String javaTarget) {
         this.javaTarget = javaTarget;
+        return this;
+    }
+
+    public CreateProject projectTemplate(String projectTemplate) {
+        this.projectTemplate = projectTemplate;
         return this;
     }
 
@@ -139,7 +146,7 @@ public class CreateProject {
 
         final QuarkusProject quarkusProject = QuarkusProject.of(projectDirPath, platformDescr, buildTool);
         final QuarkusCommandInvocation invocation = new QuarkusCommandInvocation(quarkusProject, values);
-        return new CreateProjectCommandHandler().execute(invocation);
+        return new CreateProjectCommandHandler(projectTemplate).execute(invocation);
     }
 
     public static SourceType determineSourceType(Set<String> extensions) {

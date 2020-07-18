@@ -1,1 +1,2 @@
 io.quarkus.devtools.project.codegen.rest.BasicRestProjectGenerator
+io.quarkus.devtools.project.codegen.BasicProjectGenerator

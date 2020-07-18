@@ -37,6 +37,7 @@ public class ListExtensionsCommandHandler implements QuarkusCommandHandler {
     public QuarkusCommandOutcome execute(QuarkusCommandInvocation invocation) throws QuarkusCommandException {
 
         final boolean all = invocation.getValue(ListExtensions.ALL, true);
+        final boolean info = invocation.getValue(ListExtensions.INFO_MESSAGES, true);
         final String format = invocation.getValue(ListExtensions.FORMAT, "concise");
         final String search = invocation.getValue(ListExtensions.SEARCH, "*");
         final ExtensionManager extensionManager = invocation.getValue(ListExtensions.EXTENSION_MANAGER,
@@ -82,21 +83,24 @@ public class ListExtensionsCommandHandler implements QuarkusCommandHandler {
             platformExtensions.forEach(platformExtension -> display(invocation.log(), platformExtension,
                     installedByKey.get(toKey(platformExtension)), all, currentFormatter));
             final BuildTool buildTool = invocation.getQuarkusProject().getBuildTool();
-            if ("concise".equalsIgnoreCase(format)) {
-                if (BuildTool.GRADLE.equals(buildTool)) {
-                    invocation.log().info("\nTo get more information, append --format=full to your command line.");
-                } else {
-                    invocation.log().info(
-                            "\nTo get more information, append -Dquarkus.extension.format=full to your command line.");
-                }
-            }
 
-            if (BuildTool.GRADLE.equals(buildTool)) {
-                invocation.log().info("\nAdd an extension to your project by adding the dependency to your " +
-                        "build.gradle or use `./gradlew addExtension --extensions=\"artifactId\"`");
-            } else {
-                invocation.log().info("\nAdd an extension to your project by adding the dependency to your " +
-                        "pom.xml or use `./mvnw quarkus:add-extension -Dextensions=\"artifactId\"`");
+            if (info) {
+                if ("concise".equalsIgnoreCase(format)) {
+                    if (BuildTool.GRADLE.equals(buildTool)) {
+                        invocation.log().info("\nTo get more information, append --format=full to your command line.");
+                    } else {
+                        invocation.log().info(
+                                "\nTo get more information, append -Dquarkus.extension.format=full to your command line.");
+                    }
+                }
+
+                if (BuildTool.GRADLE.equals(buildTool)) {
+                    invocation.log().info("\nAdd an extension to your project by adding the dependency to your " +
+                            "build.gradle or use `./gradlew addExtension --extensions=\"artifactId\"`");
+                } else {
+                    invocation.log().info("\nAdd an extension to your project by adding the dependency to your " +
+                            "pom.xml or use `./mvnw quarkus:add-extension -Dextensions=\"artifactId\"`");
+                }
             }
 
         }

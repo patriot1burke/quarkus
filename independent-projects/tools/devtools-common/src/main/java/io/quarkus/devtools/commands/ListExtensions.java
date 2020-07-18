@@ -20,6 +20,7 @@ public class ListExtensions {
     public static final String ALL = ToolsUtils.dotJoin(PARAM_PREFIX, "all");
     public static final String FORMAT = ToolsUtils.dotJoin(PARAM_PREFIX, "format");
     public static final String SEARCH = ToolsUtils.dotJoin(PARAM_PREFIX, "search");
+    public static final String INFO_MESSAGES = ToolsUtils.dotJoin(PARAM_PREFIX, "info");
     public static final String EXTENSION_MANAGER = ToolsUtils.dotJoin(PARAM_PREFIX, "extension-manager");
 
     private final QuarkusCommandInvocation invocation;
@@ -31,6 +32,11 @@ public class ListExtensions {
 
     public ListExtensions all(boolean all) {
         invocation.setValue(ALL, all);
+        return this;
+    }
+
+    public ListExtensions info(boolean info) {
+        invocation.setValue(INFO_MESSAGES, info);
         return this;
     }
 

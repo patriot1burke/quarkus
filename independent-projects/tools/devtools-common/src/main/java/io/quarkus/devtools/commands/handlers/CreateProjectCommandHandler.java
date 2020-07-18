@@ -12,7 +12,6 @@ import io.quarkus.devtools.project.buildfile.GradleBuildFilesCreator;
 import io.quarkus.devtools.project.codegen.ProjectGenerator;
 import io.quarkus.devtools.project.codegen.ProjectGeneratorRegistry;
 import io.quarkus.devtools.project.codegen.SourceType;
-import io.quarkus.devtools.project.codegen.rest.BasicRestProjectGenerator;
 import io.quarkus.devtools.project.extensions.ExtensionManager;
 import io.quarkus.platform.descriptor.QuarkusPlatformDescriptor;
 import io.quarkus.platform.tools.ConsoleMessageFormats;
@@ -28,6 +27,12 @@ import java.util.Set;
  * of {@link QuarkusCommandInvocation}.
  */
 public class CreateProjectCommandHandler implements QuarkusCommandHandler {
+
+    private String generator;
+
+    public CreateProjectCommandHandler(String generator) {
+        this.generator = generator;
+    }
 
     @Override
     public QuarkusCommandOutcome execute(QuarkusCommandInvocation invocation) throws QuarkusCommandException {
@@ -65,7 +70,7 @@ public class CreateProjectCommandHandler implements QuarkusCommandHandler {
 
             // extensionsToAdd is null when an error occurred while matching extensions
             if (extensionsToAdd != null) {
-                ProjectGeneratorRegistry.get(BasicRestProjectGenerator.NAME).generate(invocation);
+                ProjectGeneratorRegistry.get(generator).generate(invocation);
 
                 //TODO ia3andy extensions should be added directly during the project generation
                 if (invocation.getQuarkusProject().getBuildTool().equals(BuildTool.GRADLE)) {

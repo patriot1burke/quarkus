@@ -26,6 +26,7 @@
         <module>maven</module>
         <module>gradle</module>
         <module>aesh</module>
+        <module>cli</module>
         <module>reflection-agent</module>
     </modules>
 </project>
