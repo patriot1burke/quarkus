@@ -1,0 +1,8 @@
+---
+name: funqy-http-example
+ref: funqy-http
+type: example
+language:
+  base:
+    test-dependencies:
+      - io.rest-assured:rest-assured

@@ -1,0 +1,11 @@
+---
+name: funqy-knative-events-example
+ref: funqy-knative-events
+type: example
+language:
+  base:
+    data:
+      k8s-service-name: funqy-knative-events-codestart
+      docker-io-account: yourAccountName
+    test-dependencies:
+      - io.rest-assured:rest-assured
