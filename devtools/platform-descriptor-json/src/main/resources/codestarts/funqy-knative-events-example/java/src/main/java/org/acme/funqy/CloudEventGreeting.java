@@ -1,6 +1,5 @@
 package org.acme.funqy;
 
-import io.quarkus.funqy.Context;
 import io.quarkus.funqy.Funq;
 import org.jboss.logging.Logger;
 

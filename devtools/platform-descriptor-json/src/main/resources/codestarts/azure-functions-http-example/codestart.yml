@@ -17,3 +17,5 @@ language:
         java-functions-group
       function:
         greeting
+    dependencies:
+      - io.quarkus:quarkus-funqy-http
