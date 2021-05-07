@@ -10,6 +10,7 @@
 
 Quarkus is a Cloud Native, (Linux) Container First framework for writing Java applications.
 
+* TEST ME
 * **Container First**: 
 Minimal footprint Java applications optimal for running in containers.
 * **Cloud Native**:
