@@ -14,9 +14,12 @@ public class Function extends BaseFunction {
     public HttpResponseMessage run(
             @HttpTrigger(name = "req") HttpRequestMessage<Optional<String>> request,
             final ExecutionContext context) {
-        if (!started && !bootstrapError) {
-            initQuarkus();
-        }
+
+        // we lazily init/bootstrap Quarkus here instead of within a static block
+        // because the Azure runtime
+        // loads this class without setting the correct TCL
+        initQuarkus();
+
         if (bootstrapError) {
             HttpResponseMessage.Builder responseBuilder = request
                     .createResponseBuilder(HttpStatus.valueOf(500)).body(

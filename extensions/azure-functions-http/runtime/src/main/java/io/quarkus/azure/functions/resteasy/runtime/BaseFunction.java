@@ -35,32 +35,40 @@ public class BaseFunction {
     private static final Logger log = Logger.getLogger("io.quarkus.azure");
 
     protected static String deploymentStatus;
-    protected static boolean started = false;
-    protected static boolean bootstrapError = false;
+    protected static volatile boolean started = false;
+    protected static volatile boolean bootstrapError = false;
 
     private static final int BUFFER_SIZE = 8096;
+    private static final Object INIT_LOCK = new Object();
 
     protected static void initQuarkus() {
-        StringWriter error = new StringWriter();
-        PrintWriter errorWriter = new PrintWriter(error, true);
-        if (Application.currentApplication() == null) { // were we already bootstrapped?  Needed for mock azure unit testing.
-            try {
-                Class<?> appClass = Class.forName("io.quarkus.runner.ApplicationImpl");
-                String[] args = {};
-                Application app = (Application) appClass.newInstance();
-                app.start(args);
-                errorWriter.println("Quarkus bootstrapped successfully.");
-                started = true;
-            } catch (Throwable ex) {
-                bootstrapError = true;
-                errorWriter.println("Quarkus bootstrap failed.");
-                ex.printStackTrace(errorWriter);
+        if (!(bootstrapError || started)) { // were we already bootstrapped?
+            synchronized (INIT_LOCK) {
+                if (bootstrapError || started) {
+                    return;
+                }
+                if (Application.currentApplication() != null) { // local unit test may have bootstrapped quarkus
+                    started = true;
+                    deploymentStatus = "Quarkus bootstrapped successfully.";
+                    return;
+                }
+                StringWriter error = new StringWriter();
+                PrintWriter errorWriter = new PrintWriter(error, true);
+                try {
+                    Class<?> appClass = Class.forName("io.quarkus.runner.ApplicationImpl");
+                    String[] args = {};
+                    Application app = (Application) appClass.newInstance();
+                    app.start(args);
+                    errorWriter.println("Quarkus bootstrapped successfully.");
+                    started = true;
+                } catch (Throwable ex) {
+                    bootstrapError = true;
+                    errorWriter.println("Quarkus bootstrap failed.");
+                    ex.printStackTrace(errorWriter);
+                }
+                deploymentStatus = error.toString();
             }
-        } else {
-            errorWriter.println("Quarkus bootstrapped successfully.");
-            started = true;
         }
-        deploymentStatus = error.toString();
     }
 
     protected HttpResponseMessage dispatch(HttpRequestMessage<Optional<String>> request) {
