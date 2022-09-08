@@ -17,8 +17,8 @@
     <dependencies>
         <dependency>
             <groupId>com.microsoft.azure.functions</groupId>
-            <artifactId>azure-functions-java-library</artifactId>
-            <scope>provided</scope>
+            <artifactId>azure-functions-java-core-library</artifactId>
+            <version>1.0.0</version>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
