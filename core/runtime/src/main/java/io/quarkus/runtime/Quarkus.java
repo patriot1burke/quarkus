@@ -9,7 +9,8 @@ import org.jboss.logging.Logger;
 import io.quarkus.launcher.QuarkusLauncher;
 
 /**
- * The entry point for applications that use a main method. Quarkus will shut down when the main method returns.
+ * The run() methods are used as the entry point for applications that use a main method.
+ * Quarkus will shut down when the main method returns.
  *
  * If this application has already been generated then it will be run directly, otherwise it will be launched
  * in dev mode and augmentation will be done automatically.
@@ -19,6 +20,11 @@ import io.quarkus.launcher.QuarkusLauncher;
  *
  * If no main class is specified then one is generated automatically that will simply wait to exit after Quarkus is booted.
  *
+ *
+ * Some deployments of Quarkus live in a non-Quarkus environment where startup and shutdown
+ * are not controlled by Quarkus or the application developer (i.e. function environments like Lambda).
+ * For this scenario, this class provides some bootstrap() methods which will startup
+ * Quarkus.
  */
 public class Quarkus {
 
@@ -181,6 +187,60 @@ public class Quarkus {
         asyncExit();
         if (app != null) {
             app.awaitShutdown();
+        }
+    }
+
+    protected static volatile Throwable bootstrapFailure;
+    protected static volatile boolean attemptedBootstrap = false;
+    protected static Object bootstrapLock = new Object();
+
+    public static void bootstrap() throws Throwable {
+        bootstrap(Quarkus.class.getClassLoader());
+    }
+
+    /**
+     *
+     */
+    public static void bootstrap(ClassLoader cl) throws Throwable {
+        if (cl == null)
+            throw new IllegalArgumentException("Must provide class loader parameter");
+        boolean booted = attemptedBootstrap;
+        if (booted) {
+            if (bootstrapFailure != null) {
+                throw bootstrapFailure;
+            }
+            return;
+        }
+        synchronized (bootstrapLock) {
+            booted = attemptedBootstrap;
+            if (booted) {
+                return;
+            }
+            try {
+                if (Application.currentApplication() == null) { // were we already bootstrapped?  Needed for mock azure unit testing.
+                    ClassLoader prevCl = Thread.currentThread().getContextClassLoader();
+                    try {
+                        Thread.currentThread().setContextClassLoader(cl);
+                        Class appClass = Class.forName(Application.APP_CLASS_NAME, true, cl);
+                        String[] args = {};
+                        Application app = (Application) appClass.getDeclaredConstructor().newInstance();
+                        Runtime.getRuntime().addShutdownHook(new Thread() {
+                            @Override
+                            public void run() {
+                                app.stop();
+                            }
+                        });
+                        app.start(args);
+                    } catch (Throwable t) {
+                        bootstrapFailure = t;
+                        throw t;
+                    } finally {
+                        Thread.currentThread().setContextClassLoader(prevCl);
+                    }
+                }
+            } finally {
+                attemptedBootstrap = true;
+            }
         }
     }
 }
