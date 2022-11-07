@@ -530,10 +530,15 @@ public final class ExtensionLoader {
                 final ExecutionTime executionTime = recordAnnotation.value();
                 final boolean optional = recordAnnotation.optional();
                 methodStepConfig = methodStepConfig.andThen(bsb -> {
+                    Class<? extends BuildItem> type;
+                    if (executionTime == ExecutionTime.STATIC_INIT) {
+                        type = StaticBytecodeRecorderBuildItem.class;
+                    } else {
+                        type = MainBytecodeRecorderBuildItem.class;
+                    }
                     bsb
                             .produces(
-                                    executionTime == ExecutionTime.STATIC_INIT ? StaticBytecodeRecorderBuildItem.class
-                                            : MainBytecodeRecorderBuildItem.class,
+                                    type,
                                     optional ? ProduceFlags.of(ProduceFlag.WEAK) : ProduceFlags.NONE);
                 });
             }
@@ -923,10 +928,11 @@ public final class ExtensionLoader {
                                     // commit recorded data
                                     if (recordAnnotation.value() == ExecutionTime.STATIC_INIT) {
                                         bc.produce(new StaticBytecodeRecorderBuildItem(bri));
+                                    } else if (recordAnnotation.value() == ExecutionTime.WARMUP_INIT) {
+                                        bc.produce(new MainBytecodeRecorderBuildItem(bri, true));
                                     } else {
-                                        bc.produce(new MainBytecodeRecorderBuildItem(bri));
+                                        bc.produce(new MainBytecodeRecorderBuildItem(bri, false));
                                     }
-
                                 }
                             }
 

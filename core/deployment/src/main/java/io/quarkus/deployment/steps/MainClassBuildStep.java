@@ -37,6 +37,7 @@ import io.quarkus.deployment.builditem.ApplicationInfoBuildItem;
 import io.quarkus.deployment.builditem.BytecodeRecorderConstantDefinitionBuildItem;
 import io.quarkus.deployment.builditem.BytecodeRecorderObjectLoaderBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
+import io.quarkus.deployment.builditem.CracEnabledBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
 import io.quarkus.deployment.builditem.JavaLibraryPathAdditionalPathBuildItem;
@@ -119,6 +120,7 @@ public class MainClassBuildStep {
             List<AllowJNDIBuildItem> allowJNDIBuildItems,
             Optional<AppCDSRequestedBuildItem> appCDSRequested,
             Optional<AppCDSControlPointBuildItem> appCDSControlPoint,
+            Optional<CracEnabledBuildItem> cracEnabled,
             NamingConfig namingConfig) {
 
         appClassNameProducer.produce(new ApplicationClassNameBuildItem(Application.APP_CLASS_NAME));
@@ -188,10 +190,12 @@ public class MainClassBuildStep {
         cb.invokeVirtualMethod(ofMethod(StartupContext.class, "close", void.class), startupContext);
         cb.throwException(RuntimeException.class, "Failed to start quarkus", cb.getCaughtException());
 
-        // Application class: start method
+        // Application class: warmup method
+        boolean crac = cracEnabled.isPresent();
 
-        mv = file.getMethodCreator("doStart", void.class, String[].class);
+        mv = file.getMethodCreator("doWarmup", void.class, String[].class);
         mv.setModifiers(Modifier.PROTECTED | Modifier.FINAL);
+        startupContext = mv.readStaticField(scField.getFieldDescriptor());
 
         // if AppCDS generation was requested and no other code has requested handling of the process,
         // we ensure that the application simply loads some classes from a file and terminates
@@ -236,6 +240,51 @@ public class MainClassBuildStep {
                     mv.load(JAVA_LIBRARY_PATH),
                     mv.invokeVirtualMethod(ofMethod(StringBuilder.class, "toString", String.class), javaLibraryPath));
         }
+        //now set the command line arguments
+        mv.invokeVirtualMethod(
+                MethodDescriptor.ofMethod(StartupContext.class, "setCommandLineArguments", void.class, String[].class),
+                startupContext, mv.getMethodParam(0));
+
+        if (crac) {
+            tryBlock = mv.tryBlock();
+            tryBlock.invokeStaticMethod(CONFIGURE_STEP_TIME_START);
+            for (MainBytecodeRecorderBuildItem holder : mainMethod) {
+                if (!holder.canWarmup())
+                    continue;
+                writeRecordedBytecode(holder.getBytecodeRecorder(), holder.getGeneratedStartupContextClassName(), substitutions,
+                        recordableConstructorBuildItems,
+                        loaders, constants, gizmoOutput, startupContext, tryBlock);
+            }
+            cb = tryBlock.addCatch(Throwable.class);
+
+            // an exception was thrown before logging was actually setup, we simply dump everything to the console
+            // we don't do this for dev mode, as on startup failure dev mode sets up its own logging
+            if (launchMode.getLaunchMode() != LaunchMode.DEVELOPMENT) {
+                ResultHandle delayedHandler = cb
+                        .readStaticField(
+                                FieldDescriptor.of(InitialConfigurator.class, "DELAYED_HANDLER", QuarkusDelayedHandler.class));
+                ResultHandle isActivated = cb.invokeVirtualMethod(
+                        ofMethod(QuarkusDelayedHandler.class, "isActivated", boolean.class),
+                        delayedHandler);
+                BytecodeCreator isActivatedFalse = cb.ifNonZero(isActivated).falseBranch();
+                ResultHandle handlersArray = isActivatedFalse.newArray(Handler.class, 1);
+                isActivatedFalse.writeArrayValue(handlersArray, 0,
+                        isActivatedFalse.newInstance(ofConstructor(ConsoleHandler.class)));
+                isActivatedFalse.invokeVirtualMethod(
+                        ofMethod(QuarkusDelayedHandler.class, "setHandlers", Handler[].class, Handler[].class),
+                        delayedHandler, handlersArray);
+                isActivatedFalse.breakScope();
+            }
+
+            cb.invokeVirtualMethod(ofMethod(StartupContext.class, "close", void.class), startupContext);
+            cb.throwException(RuntimeException.class, "Failed to start quarkus", cb.getCaughtException());
+        }
+        mv.returnValue(null);
+
+        // Application class: start method
+
+        mv = file.getMethodCreator("doStart", void.class, String[].class);
+        mv.setModifiers(Modifier.PROTECTED | Modifier.FINAL);
 
         mv.invokeStaticMethod(ofMethod(Timing.class, "mainStarted", void.class));
         startupContext = mv.readStaticField(scField.getFieldDescriptor());
@@ -252,6 +301,10 @@ public class MainClassBuildStep {
         tryBlock = mv.tryBlock();
         tryBlock.invokeStaticMethod(CONFIGURE_STEP_TIME_START);
         for (MainBytecodeRecorderBuildItem holder : mainMethod) {
+            // we do warmup recorders if crac is disabled
+            // FYI: this is implemented this way to retain recorder ordering if crac is disabled
+            if (crac && holder.canWarmup())
+                continue;
             writeRecordedBytecode(holder.getBytecodeRecorder(), holder.getGeneratedStartupContextClassName(), substitutions,
                     recordableConstructorBuildItems,
                     loaders, constants, gizmoOutput, startupContext, tryBlock);

@@ -27,7 +27,7 @@ public class BootstrapConfigSetupBuildStep {
     @BuildStep
     @Produce(BootstrapConfigSetupCompleteBuildItem.class)
     void setupBootstrapConfig(BuildProducer<GeneratedClassBuildItem> generatedClass,
-            BuildProducer<MainBytecodeRecorderBuildItem> mainBytecodeRecorder) {
+            BuildProducer<MainBytecodeRecorderBuildItem> bytecodeRecorder) {
         ClassOutput classOutput = new GeneratedClassGizmoAdaptor(generatedClass, true);
 
         try (ClassCreator clazz = ClassCreator.builder().classOutput(classOutput)
@@ -43,6 +43,6 @@ public class BootstrapConfigSetupBuildStep {
             }
         }
 
-        mainBytecodeRecorder.produce(new MainBytecodeRecorderBuildItem(BOOTSTRAP_CONFIG_STARTUP_TASK_CLASS_NAME));
+        bytecodeRecorder.produce(new MainBytecodeRecorderBuildItem(BOOTSTRAP_CONFIG_STARTUP_TASK_CLASS_NAME, true));
     }
 }

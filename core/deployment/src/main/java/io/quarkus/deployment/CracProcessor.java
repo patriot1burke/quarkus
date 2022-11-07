@@ -26,7 +26,7 @@ public class CracProcessor {
             CracConfig config,
             Optional<CracDefaultValueBuildItem> defaultVal) {
         if (config.enable.isPresent()) {
-            if (config.enable.get().booleanValue() == false) {
+            if (!config.enable.get().booleanValue()) {
                 return;
             }
 
@@ -35,8 +35,8 @@ public class CracProcessor {
         }
         cracEnabled.produce(CracEnabledBuildItem.INSTANCE);
         if (config.preloadClasses)
-            preload.produce(new PreloadClassesEnabledBuildItem());
-        crac.register(config.fullWarmup);
+            preload.produce(new PreloadClassesEnabledBuildItem(config.initializeClasses));
+        crac.register(config.fullWarmup, config.registerCallback);
     }
 
 }

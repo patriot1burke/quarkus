@@ -219,7 +219,7 @@ public final class LoggingResourceProcessor {
     }
 
     @BuildStep
-    @Record(ExecutionTime.RUNTIME_INIT)
+    @Record(ExecutionTime.WARMUP_INIT)
     LoggingSetupBuildItem setupLoggingRuntimeInit(RecorderContext context, LoggingSetupRecorder recorder, LogConfig log,
             LogBuildTimeConfig buildLog,
             CombinedIndexBuildItem combinedIndexBuildItem,
