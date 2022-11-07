@@ -257,7 +257,7 @@ public class ConfigGenerationBuildStep {
      * Warns if build time config properties have been changed at runtime.
      */
     @BuildStep
-    @Record(ExecutionTime.RUNTIME_INIT)
+    @Record(ExecutionTime.WARMUP_INIT)
     public void checkForBuildTimeConfigChange(
             RecorderContext recorderContext,
             ConfigRecorder recorder,

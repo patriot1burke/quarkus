@@ -11,5 +11,9 @@ public enum ExecutionTime {
     /**
      * The bytecode is run from a main method
      */
-    RUNTIME_INIT
+    RUNTIME_INIT,
+    /**
+     * The bytecode is run from a warmup method
+     */
+    WARMUP_INIT
 }

@@ -1,7 +1,6 @@
 package io.quarkus.arc.deployment;
 
-import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
-import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
+import static io.quarkus.deployment.annotations.ExecutionTime.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -679,7 +678,7 @@ public class ArcProcessor {
     }
 
     @BuildStep
-    @Record(value = RUNTIME_INIT)
+    @Record(value = WARMUP_INIT)
     void setupExecutor(ExecutorBuildItem executor, ArcRecorder recorder) {
         recorder.initExecutor(executor.getExecutorProxy());
     }

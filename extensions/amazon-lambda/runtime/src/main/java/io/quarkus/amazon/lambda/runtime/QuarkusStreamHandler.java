@@ -18,7 +18,7 @@ import io.quarkus.runtime.Quarkus;
  */
 public class QuarkusStreamHandler implements RequestStreamHandler {
     public QuarkusStreamHandler() {
-        Quarkus.manualInitialize();
+        Quarkus.manualWarmup();
     }
 
     @Override

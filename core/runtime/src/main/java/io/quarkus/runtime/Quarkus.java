@@ -10,6 +10,7 @@ import org.jboss.logging.Logger;
 
 import io.quarkus.launcher.QuarkusLauncher;
 import io.quarkus.runtime.logging.JBossVersion;
+import io.quarkus.runtime.shutdown.ShutdownRecorder;
 
 /**
  * The entry point for applications that use a main method. Quarkus will shut down when the main method returns.
@@ -198,9 +199,11 @@ public class Quarkus {
     private static final int MANUAL_BEGIN = 0;
     private static final int MANUAL_BEGIN_INITIALIZATION = 1;
     private static final int MANUAL_INITIALIZED = 2;
-    private static final int MANUAL_STARTING = 3;
-    private static final int MANUAL_STARTED = 4;
-    private static final int MANUAL_FAILURE = 5;
+    private static final int MANUAL_BEGIN_WARMUP = 3;
+    private static final int MANUAL_WARMED_UP = 4;
+    private static final int MANUAL_STARTING = 5;
+    private static final int MANUAL_STARTED = 6;
+    private static final int MANUAL_FAILURE = 7;
     private static volatile int manualState = MANUAL_BEGIN;
     private static final Object manualLock = new Object();
 
@@ -232,17 +235,53 @@ public class Quarkus {
             Class<?> appClass = Class.forName("io.quarkus.runner.ApplicationImpl");
             manualApp = (Application) appClass.getDeclaredConstructor().newInstance();
             manualState = MANUAL_INITIALIZED;
-            if (CracRecorder.enabled) {
-                // NOTE: I tried to do this within a recorder method, but the resource was never registered
-                // with Crac.  Ideally this would be registered within CracRecorder.register()
-                Core.getGlobalContext()
-                        .register(new CracRecorder.CracResource(CracRecorder.fullWarmup));
-            }
-            manualState = MANUAL_INITIALIZED;
         } catch (Exception e) {
             manualState = MANUAL_FAILURE;
             throw new RuntimeException("Quarkus manual initialization failed", e);
         }
+    }
+
+    /**
+     * Manual startup of Quarkus runtime in cases where
+     * Quarkus does not have control over main() i.e. Lambda or Azure Functions.
+     *
+     * This method will call Application.start() and register shutdown hook
+     * It will fail if Quarkus.manualInitialize() has not been called.
+     *
+     *
+     */
+    public static void manualWarmup() {
+        manualInitialize();
+        manualApp.currentApplication = manualApp;
+        int tmpState = manualState;
+        if (tmpState == MANUAL_FAILURE)
+            throw new IllegalStateException("Quarkus failed to warm up");
+        if (tmpState >= MANUAL_WARMED_UP)
+            return;
+        synchronized (manualLock) {
+            tmpState = manualState;
+            if (tmpState == MANUAL_FAILURE)
+                throw new RuntimeException("Quarkus manual bootstrap failed");
+            if (tmpState >= MANUAL_WARMED_UP)
+                return;
+            if (tmpState != MANUAL_INITIALIZED)
+                throw new IllegalStateException("Quarkus manual warmup cannot proceed as manual initialization did not run");
+            manualState = MANUAL_BEGIN_WARMUP;
+        }
+        try {
+            String[] args = {};
+            manualApp.doWarmup(args);
+            if (CracRecorder.enabled && CracRecorder.registerCallback) {
+                // NOTE: I tried to do this within a recorder method, but the resource was never registered
+                // with Crac.  Ideally this would be registered within CracRecorder.register()
+                Core.getGlobalContext().register(new CracRecorder.CracResource(CracRecorder.fullWarmup));
+                Logger.getLogger(Quarkus.class).info("Registered Crac resource callback");
+            }
+        } catch (RuntimeException e) {
+            manualState = MANUAL_FAILURE;
+            throw e;
+        }
+        manualState = MANUAL_WARMED_UP;
     }
 
     /**
@@ -266,8 +305,8 @@ public class Quarkus {
                 throw new RuntimeException("Quarkus manual bootstrap failed");
             if (tmpState >= MANUAL_STARTING)
                 return;
-            if (tmpState != MANUAL_INITIALIZED)
-                throw new IllegalStateException("Quarkus manual start cannot proceed as manual initialization did not run");
+            if (tmpState != MANUAL_WARMED_UP)
+                throw new IllegalStateException("Quarkus manual start cannot proceed as warmup did not run");
             manualState = MANUAL_STARTING;
         }
         try {
@@ -275,10 +314,11 @@ public class Quarkus {
             Runtime.getRuntime().addShutdownHook(new Thread() {
                 @Override
                 public void run() {
-                    manualApp.stop();
+                    ShutdownRecorder.runShutdown();
+                    manualApp.doStop();
                 }
             });
-            manualApp.start(args);
+            manualApp.doStart(args);
         } catch (RuntimeException e) {
             manualState = MANUAL_FAILURE;
             throw e;

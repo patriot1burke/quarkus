@@ -1,7 +1,7 @@
 package io.quarkus.arc.deployment;
 
 import static io.quarkus.arc.processor.Annotations.getParameterAnnotations;
-import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
+import static io.quarkus.deployment.annotations.ExecutionTime.WARMUP_INIT;
 import static io.quarkus.deployment.builditem.ConfigClassBuildItem.Kind.MAPPING;
 import static io.quarkus.deployment.builditem.ConfigClassBuildItem.Kind.PROPERTIES;
 import static io.quarkus.deployment.configuration.ConfigMappingUtils.CONFIG_MAPPING_NAME;
@@ -198,7 +198,7 @@ public class ConfigBuildStep {
     }
 
     @BuildStep
-    @Record(RUNTIME_INIT)
+    @Record(WARMUP_INIT)
     void validateConfigValues(ConfigRecorder recorder, List<ConfigPropertyBuildItem> configProperties,
             BeanContainerBuildItem beanContainer, BuildProducer<ReflectiveClassBuildItem> reflectiveClass) {
         // IMPL NOTE: we do depend on BeanContainerBuildItem to make sure that the BeanDeploymentValidator finished its processing
@@ -532,7 +532,7 @@ public class ConfigBuildStep {
     }
 
     @BuildStep
-    @Record(RUNTIME_INIT)
+    @Record(WARMUP_INIT)
     void registerConfigClasses(
             RecorderContext context,
             ConfigRecorder recorder,

@@ -49,7 +49,7 @@ public class RuntimeConfigSetupBuildStep {
     @Produce(RuntimeConfigSetupCompleteBuildItem.class)
     void setupRuntimeConfig(List<RunTimeConfigurationSourceValueBuildItem> runTimeConfigurationSourceValues,
             BuildProducer<GeneratedClassBuildItem> generatedClass,
-            BuildProducer<MainBytecodeRecorderBuildItem> mainBytecodeRecorder) {
+            BuildProducer<MainBytecodeRecorderBuildItem> bytecodeRecorder) {
         ClassOutput classOutput = new GeneratedClassGizmoAdaptor(generatedClass, true);
 
         try (ClassCreator clazz = ClassCreator.builder().classOutput(classOutput)
@@ -97,6 +97,6 @@ public class RuntimeConfigSetupBuildStep {
             }
         }
 
-        mainBytecodeRecorder.produce(new MainBytecodeRecorderBuildItem(RUNTIME_CONFIG_STARTUP_TASK_CLASS_NAME));
+        bytecodeRecorder.produce(new MainBytecodeRecorderBuildItem(RUNTIME_CONFIG_STARTUP_TASK_CLASS_NAME, true));
     }
 }

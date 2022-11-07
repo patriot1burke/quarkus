@@ -39,10 +39,12 @@ public class CracRecorder {
 
     public static boolean enabled = false;
     public static boolean fullWarmup = false;
+    public static boolean registerCallback = true;
 
-    public void register(boolean fw) {
+    public void register(boolean fw, boolean reg) {
         enabled = true;
         fullWarmup = fw;
+        registerCallback = reg;
         // I originally wanted to do registration here, but for some reason
         // the registration didn't result in the CRAC callbacks being executed.
         // I had to move the registration into Quarkus.manualInitialize()
