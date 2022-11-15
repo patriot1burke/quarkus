@@ -32,6 +32,11 @@ public class Quarkus {
     private static Closeable LAUNCHED_FROM_IDE;
 
     /**
+     * Flag tracking if the application has already be warmed up.
+     */
+    private static boolean warm;
+
+    /**
      * Runs a quarkus application, that will run until the provided {@link QuarkusApplication} has completed.
      *
      * Note that if this is run from the IDE the application will run in a different class loader to the
@@ -210,7 +215,7 @@ public class Quarkus {
     /**
      * Manual initialization of Quarkus runtime in cases where
      * Quarkus does not have control over main() i.e. Lambda or Azure Functions.
-     *
+     * <p>
      * This method will trigger static initialization
      *
      */
@@ -244,13 +249,16 @@ public class Quarkus {
     /**
      * Manual startup of Quarkus runtime in cases where
      * Quarkus does not have control over main() i.e. Lambda or Azure Functions.
-     *
+     * <p>
      * This method will call Application.start() and register shutdown hook
      * It will fail if Quarkus.manualInitialize() has not been called.
-     *
-     *
      */
     public static void manualWarmup() {
+        if (warm) {
+            // Already warm, typically because of a restoration from a snapshot
+            return;
+        }
+        warm = true;
         manualInitialize();
         manualApp.currentApplication = manualApp;
         int tmpState = manualState;
@@ -287,18 +295,20 @@ public class Quarkus {
     /**
      * Manual startup of Quarkus runtime in cases where
      * Quarkus does not have control over main() i.e. Lambda or Azure Functions.
-     *
+     * </p>
      * This method will call Application.start() and register shutdown hook
      * It will fail if Quarkus.manualInitialize() has not been called.
-     *
      *
      */
     public static void manualStart() {
         int tmpState = manualState;
         if (tmpState == MANUAL_FAILURE)
             throw new IllegalStateException("Quarkus failed to start up");
-        if (tmpState >= MANUAL_STARTING)
+        if (tmpState >= MANUAL_STARTING) {
+            // If the application, get restored from a snapshot (like with CRAC), the state should be MANUAL_STARTED,
+            // and so, we return immediately.
             return;
+        }
         synchronized (manualLock) {
             tmpState = manualState;
             if (tmpState == MANUAL_FAILURE)
