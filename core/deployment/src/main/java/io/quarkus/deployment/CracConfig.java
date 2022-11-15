@@ -21,7 +21,7 @@ public class CracConfig {
     /**
      * Enable/Disable CRAC Resource registration.
      * <p>
-     * The registered CRAC Resource will startup Quarkus during the `afterResotre()` phase.
+     * The registered CRAC Resource will startup Quarkus during the `afterRestore()` phase.
      * Sometimes RESTORE time restrictions are not met and Quarkus startup needs
      * to move during the 1st full invocation. In that case, set this value to false.
      */
@@ -29,15 +29,15 @@ public class CracConfig {
     boolean registerCallback;
 
     /**
-     * Will do a classpath search for all META-INF/quarkus-preload-classes.txt files
+     * Will do a classpath search for all {@code META-INF/quarkus-preload-classes.txt} files
      * These files contain fully qualified classnames that should be loaded
-     * in the CRAC`beforeCheckpoint()` phase
+     * in the CRAC `beforeCheckpoint()` phase
      */
     @ConfigItem(defaultValue = "true")
     boolean preloadClasses;
 
     /**
-     * if preloading classes, specify whether or not
+     * if preloading classes, specify whether
      * to do static initialization when preloading these classes.
      */
     @ConfigItem(defaultValue = "true")
