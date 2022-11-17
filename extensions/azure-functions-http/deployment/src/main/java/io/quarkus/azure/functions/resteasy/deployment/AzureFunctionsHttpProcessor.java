@@ -4,7 +4,8 @@ import org.jboss.logging.Logger;
 
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
-import io.quarkus.deployment.pkg.builditem.UberJarRequiredBuildItem;
+import io.quarkus.deployment.pkg.PackageConfig;
+import io.quarkus.deployment.pkg.builditem.LegacyJarRequiredBuildItem;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.vertx.http.deployment.RequireVirtualHttpBuildItem;
 
@@ -12,9 +13,10 @@ public class AzureFunctionsHttpProcessor {
     private static final Logger log = Logger.getLogger(AzureFunctionsHttpProcessor.class);
 
     @BuildStep
-    public UberJarRequiredBuildItem forceUberJar() {
-        // Azure Functions needs a single JAR inside a dedicated directory
-        return new UberJarRequiredBuildItem();
+    public LegacyJarRequiredBuildItem forceLegacy(PackageConfig config) {
+        // Azure Functions need a legacy jar and no runner
+        config.addRunnerSuffix = false;
+        return new LegacyJarRequiredBuildItem();
     }
 
     @BuildStep

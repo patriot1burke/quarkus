@@ -10,6 +10,8 @@ metadata:
   related-guide-section: https://quarkus.io/guides/azure-functions-http
 language:
   base:
+    shared-data:
+      generate-native: false
     data:
       # /api is the default root context azure functions will prepend
       root-context-path: "/api"
@@ -17,7 +19,9 @@ language:
         westus
       resource-group:
         java-functions-group
-      function:
-        greeting
     dependencies:
       - io.quarkus:quarkus-azure-functions-http
+      - io.quarkus:quarkus-resteasy-reactive
+      - com.microsoft.azure.functions:azure-functions-java-library
+    test-dependencies:
+      - io.rest-assured:rest-assured
