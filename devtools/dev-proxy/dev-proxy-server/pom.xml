@@ -8,7 +8,7 @@
     <version>999-SNAPSHOT</version>
     <relativePath>../../../build-parent/pom.xml</relativePath>
   </parent>
-  <groupId>org.quarkus.depot</groupId>
+  <groupId>io.quarkus.depot</groupId>
   <artifactId>dev-proxy-server</artifactId>
   <properties>
   </properties>
@@ -28,6 +28,11 @@
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus.depot</groupId>
+      <artifactId>dev-proxy-core</artifactId>
+      <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>io.vertx</groupId>

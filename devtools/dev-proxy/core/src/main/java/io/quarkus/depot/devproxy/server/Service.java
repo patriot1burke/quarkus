@@ -1,4 +1,4 @@
-package org.quarkus.depot.dev.proxy;
+package io.quarkus.depot.devproxy.server;
 
 public class Service {
     private String name;

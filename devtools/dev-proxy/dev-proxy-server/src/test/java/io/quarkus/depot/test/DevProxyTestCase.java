@@ -5,6 +5,7 @@ import static org.hamcrest.CoreMatchers.equalTo;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import jakarta.inject.Inject;
@@ -13,9 +14,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.quarkus.depot.dev.proxy.DevProxyServer;
-import org.quarkus.depot.dev.proxy.Service;
 
+import io.quarkus.depot.devproxy.server.DevProxyServer;
+import io.quarkus.depot.devproxy.server.Service;
 import io.quarkus.test.junit.QuarkusTest;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -130,6 +131,56 @@ public class DevProxyTestCase {
         Assertions.assertEquals(res.statusCode(), 204);
         String poll = res.getHeader(DevProxyServer.POLL_LINK);
         Assertions.assertNotNull(poll);
+        AtomicBoolean keepAlive = new AtomicBoolean(true);
+        client.post(8081, "localhost", poll).send().onSuccess(event -> {
+            poll(event, keepAlive);
+        });
+        keepAlive.set(true); // only do one request
+        System.out.println("-------------------- GET REQUEST --------------------");
+        given()
+                .when()
+                .queryParam("_dp", "my-service")
+                .get("/yo")
+                .then()
+                .statusCode(200)
+                .contentType(equalTo("text/plain"))
+                .body(equalTo("GET$/yo?_dp=my-service"));
+        System.out.println("------------------ POST REQUEST ---------------------");
+        given()
+                .when()
+                .queryParam("_dp", "my-service")
+                .post("/hey")
+                .then()
+                .statusCode(200)
+                .contentType(equalTo("text/plain"))
+                .body(equalTo("POST$/hey?_dp=my-service"));
+        given()
+                .when()
+                .delete(DevProxyServer.CLIENT_API_PATH + "/connect/my-service")
+                .then()
+                .statusCode(204);
+
+    }
+
+    private static void poll(HttpResponse<Buffer> pollResponse, AtomicBoolean keepAlive) {
+        System.out.println("client poll");
+        if (pollResponse.statusCode() != 200) {
+            System.out.println("Client failed with : " + pollResponse.statusCode());
+            return;
+        }
+        String method = pollResponse.getHeader(DevProxyServer.METHOD_HEADER);
+        String uri = pollResponse.getHeader(DevProxyServer.URI_HEADER);
+        String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
+        client.post(8081, "localhost", responsePath)
+                .addQueryParam("keepAlive", keepAlive.toString())
+                .putHeader(DevProxyServer.STATUS_CODE_HEADER, "200")
+                .putHeader(DevProxyServer.HEADER_FORWARD_PREFIX + "Content-Type", "text/plain")
+                .sendBuffer(Buffer.buffer(method + "$" + uri))
+                .onSuccess(event -> {
+                    if (event.statusCode() == 200) {
+                        poll(event, keepAlive);
+                    }
+                });
 
     }
 
