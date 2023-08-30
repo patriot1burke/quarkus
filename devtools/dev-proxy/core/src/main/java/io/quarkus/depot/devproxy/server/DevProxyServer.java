@@ -11,6 +11,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import io.vertx.core.http.Cookie;
+import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.HttpServerResponse;
 import org.jboss.logging.Logger;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -20,7 +26,6 @@ import io.vertx.core.MultiMap;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
-import io.vertx.core.http.*;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.jackson.JacksonCodec;
 import io.vertx.core.streams.Pipe;
@@ -103,6 +108,8 @@ public class DevProxyServer {
     public static final String RESPONSE_LINK = "X-Depot-Response-Path";
     public static final String POLL_LINK = "X-Depot-Poll-Path";
     public static final String PROXY_API_PATH = "/_dev_proxy_api_";
+
+    public static final long POLL_TIMEOUT = 1000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
     Map<String, ServiceProxy> proxies = new ConcurrentHashMap<>();
     Vertx vertx;
@@ -303,9 +310,6 @@ public class DevProxyServer {
         }
         proxiedResponse.setStatusCode(Integer.parseInt(status));
         pushedResponse.headers().forEach((key, val) -> {
-            if (key.equalsIgnoreCase("Content-Length")) {
-                return;
-            }
             int idx = key.indexOf(HEADER_FORWARD_PREFIX);
             if (idx == 0) {
                 String headerName = key.substring(HEADER_FORWARD_PREFIX.length());
@@ -354,24 +358,25 @@ public class DevProxyServer {
                 ctx.request().connection().exceptionHandler((v) -> closed.set(true));
                 RoutingContext proxiedCtx = null;
                 try {
-                    for (;;) {
-                        log.infov("Polling {0} {1}", name, sessionId);
-                        proxiedCtx = session.queue.poll(10, TimeUnit.MILLISECONDS);
-                        if (proxiedCtx != null) {
-                            log.infov("Got request {0} {1}", name, sessionId);
-                            if (closed.get()) {
-                                log.info("Polled message but connection was closed, returning to queue");
-                                session.queue.put(proxiedCtx);
-                                return;
-                            } else {
-                                break;
-                            }
-                        } else if (closed.get()) {
+                    log.infov("Polling {0} {1}", name, sessionId);
+                    proxiedCtx = session.queue.poll(POLL_TIMEOUT, TimeUnit.MILLISECONDS);
+                    if (proxiedCtx != null) {
+                        log.infov("Got request {0} {1}", name, sessionId);
+                        if (closed.get()) {
+                            log.info("Polled message but connection was closed, returning to queue");
+                            session.queue.put(proxiedCtx);
                             return;
                         }
+                    } else if (closed.get()) {
+                        log.info("Polled message timeout, client closed");
+                        return;
+                    } else {
+                        log.info("Polled message timeout, sending 408");
+                        ctx.fail(408);
+                        return;
                     }
                 } catch (InterruptedException e) {
-                    log.error("nextEvent interrupted");
+                    log.error("poll interrupted");
                     ctx.fail(500);
                 }
                 pollResponse.setStatusCode(200);
