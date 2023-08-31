@@ -1,7 +1,6 @@
 package io.quarkus.depot.devproxy.client;
 
 import io.quarkus.depot.devproxy.server.DevProxyServer;
-import io.vertx.core.AsyncResult;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
@@ -10,10 +9,8 @@ import org.jboss.logging.Logger;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DevProxyClient {
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
@@ -27,79 +24,75 @@ public class DevProxyClient {
     protected String whoami;
     protected String sessionId;
     protected int numPollers = 1;
-    protected boolean keepAlive = true;
     protected volatile boolean running = true;
     protected String service;
     protected String pollLink;
-    protected AtomicInteger workersRunning;
+    protected CountDownLatch workerShutdown;
 
-    protected CountDownLatch shutdown = new CountDownLatch(1);
-
-    public void startGlobalSession(String sessionId) throws Exception {
-        startSession(DevProxyServer.GLOBAL_PROXY_SESSION);
+    public boolean startGlobalSession() throws Exception {
+        return startSession(DevProxyServer.GLOBAL_PROXY_SESSION);
     }
-    public void startSession(String sessionId) throws Exception {
-        serviceInvocations = new Semaphore(numPollers);
+    public boolean startSession(String sessionId) throws Exception {
         String uri = DevProxyServer.CLIENT_API_PATH + "/connect/" + service + "?who=" + whoami + "&session=" + sessionId;
 
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicBoolean success = new AtomicBoolean();
         proxyClient.request(HttpMethod.POST, uri, event -> {
             if (event.failed()) {
-                failure(event, "Could not connect to startSession");
+                log.error("Could not connect to startSession", event.cause());
+                latch.countDown();
                 return;
             }
             HttpClientRequest request = event.result();
             request.send().onComplete(event1 -> {
                 if (event1.failed()) {
-                    failure(event1, "Could not connect to startSession");
+                    log.error("Could not connect to startSession", event1.cause());
+                    latch.countDown();
                     return;
                 }
                 HttpClientResponse response = event1.result();
                 if (response.statusCode() != 204) {
-                    failure("Could not connect to startSession", response);
+                    response.bodyHandler(body -> {
+                        log.error("Could not connect to startSession" + ": " + body.toString());
+                        latch.countDown();
+                    });
+                    return;
                 }
-                this.pollLink = response.getHeader(DevProxyServer.POLL_LINK);
-                workersRunning = new AtomicInteger(numPollers);
-                for (int i = 0; i < numPollers; i++) poll();
+                try {
+                    this.pollLink = response.getHeader(DevProxyServer.POLL_LINK);
+                    for (int i = 0; i < numPollers; i++) poll();
+                    workerShutdown = new CountDownLatch(numPollers);
+                    success.set(true);
+                } finally {
+                    latch.countDown();
+                }
             });
         });
-    }
-
-    private void failure(AsyncResult<?> event, String message) {
-        log.error(message, event.cause());
-        failureShutdown();
-    }
-
-    private void failureShutdown() {
-        shutdown.countDown();
-    }
-
-    private void failure(String message, HttpClientResponse response) {
-        response.bodyHandler(body -> {
-            log.error(message + ": " + body.toString());
-            failureShutdown();
-        });
+        latch.await();
+        if (!success.get()) {
+            proxyClient.close();
+            serviceClient.close();
+        }
+        this.sessionId = sessionId;
+        return true;
     }
 
     protected void pollFailure(Throwable failure) {
         log.error("Poll failed", failure);
-        workerFailure();
+        workerOffline();
     }
     protected void pollFailure(String error) {
         log.error("Poll failed: " + error);
-        workerFailure();
+        workerOffline();
     }
 
-    private void workerFailure() {
-        workersRunning.decrementAndGet();
-        synchronized(this) {
-            if (workersRunning.get() == 0) {
-                failureShutdown();
-            }
-        }
+    private void workerOffline() {
+        workerShutdown.countDown();
     }
 
     protected void poll() {
         if (!running) {
+            workerOffline();
             return;
         }
         proxyClient.request(HttpMethod.POST, pollLink)
@@ -118,6 +111,10 @@ public class DevProxyClient {
         if (proxyStatus == 408) {
             poll();
             return;
+        } else if (proxyStatus == 204) {
+            // keepAlive = false sent back
+            workerOffline();
+            return;
         } else if (proxyStatus != 200) {
             pollResponse.bodyHandler(body -> {
                 pollFailure(body.toString());
@@ -130,7 +127,8 @@ public class DevProxyClient {
         serviceClient.request(HttpMethod.valueOf(method), uri)
                 .onFailure(exc -> {
                     log.error("Service connect failure", exc);
-                    workerFailure();
+                    String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
+                    deletePushResponse(responsePath);
                 })
                 .onSuccess(serviceRequest -> {
                     invokeService(pollResponse, serviceRequest);
@@ -141,6 +139,7 @@ public class DevProxyClient {
 
     private void invokeService(HttpClientResponse pollResponse, HttpClientRequest serviceRequest) {
         serviceRequest.setTimeout(1000 * 1000); // long timeout as there might be a debugger session
+        String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
         pollResponse.headers().forEach((key, val) -> {
             int idx = key.indexOf(DevProxyServer.HEADER_FORWARD_PREFIX);
             if (idx == 0) {
@@ -153,19 +152,28 @@ public class DevProxyClient {
         serviceRequest.send(pollResponse)
                 .onFailure(exc -> {
                     log.error("Service send failure", exc);
-                    workerFailure();
+                    deletePushResponse(responsePath);
                 })
                 .onSuccess(serviceResponse -> {
-                    String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
                     handleServiceResponse(responsePath, serviceResponse);
                 });
     }
+    private void deletePushResponse(String link) {
+        if (link == null) {
+            workerOffline();
+            return;
+        }
+        proxyClient.request(HttpMethod.DELETE, link)
+                .onFailure(event -> workerOffline())
+                .onSuccess(request -> request.send().onComplete(event -> workerOffline()));
+    }
 
     private void handleServiceResponse(String responsePath, HttpClientResponse serviceResponse) {
-        proxyClient.request(HttpMethod.POST, responsePath)
+        // do not keepAlive is we are in shutdown mode
+        proxyClient.request(HttpMethod.POST, responsePath + "?keepAlive=" + running)
                 .onFailure(exc -> {
                     log.error("Proxy handle response failure", exc);
-                    workerFailure();
+                    workerOffline();
                 })
                 .onSuccess(pushRequest -> {
                     pushRequest.setTimeout(DevProxyServer.POLL_TIMEOUT * 2);
@@ -176,17 +184,40 @@ public class DevProxyClient {
                     pushRequest.send(serviceResponse)
                             .onFailure(exc -> {
                                 log.error("Failed to push service response", exc);
-                                workerFailure();
+                                workerOffline();
                             })
                             .onSuccess(this::handlePoll); // a successful push restarts poll
                 });
     }
-
-
-
-
     public void shutdown() {
         running = false;
+        try {
+            workerShutdown.await(5, TimeUnit.SECONDS);
+        } catch (Throwable ignored) {
+
+        }
+        CountDownLatch latch = new CountDownLatch(1);
+        if (sessionId != null) {
+            String uri = DevProxyServer.CLIENT_API_PATH + "/connect/" + service + "?session=" + sessionId;
+            proxyClient.request(HttpMethod.DELETE, uri)
+                    .onFailure(event -> {
+                        log.error("Failed to delete sesssion on shutdown", event);
+                        latch.countDown();
+                    })
+                    .onSuccess(request -> request.send()
+                            .onComplete(event -> {
+                                if (event.failed()) {
+                                    log.error("Failed to delete sesssion on shutdown", event.cause());
+                                }
+                                latch.countDown();
+                            }));
+
+        }
+        try {
+            latch.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+        }
+
         proxyClient.close();
         serviceClient.close();
     }

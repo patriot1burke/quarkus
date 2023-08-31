@@ -127,8 +127,12 @@ public class DevProxyServer {
         router.route(CLIENT_API_PATH + "/poll/:service/session/:session").method(HttpMethod.POST).handler(this::pollNext);
         router.route(CLIENT_API_PATH + "/connect/:service").method(HttpMethod.POST).handler(this::clientConnect);
         router.route(CLIENT_API_PATH + "/connect/:service").method(HttpMethod.DELETE).handler(this::deleteClientConnection);
-        router.route(CLIENT_API_PATH + "/push/response/:service/session/:session/request/:request").method(HttpMethod.POST)
+        router.route(CLIENT_API_PATH + "/push/response/:service/session/:session/request/:request")
+                .method(HttpMethod.POST)
                 .handler(this::pushResponse);
+        router.route(CLIENT_API_PATH + "/push/response/:service/session/:session/request/:request")
+                .method(HttpMethod.DELETE)
+                .handler(this::deletePushResponse);
 
         // proxy to deployed services
         router.route().handler(this::proxy);
@@ -325,6 +329,34 @@ public class DevProxyServer {
             ctx.response().setStatusCode(204).end();
         }
     }
+
+    public void deletePushResponse(RoutingContext ctx) {
+        String name = ctx.pathParam("service");
+        String sessionId = ctx.pathParam("session");
+        String requestId = ctx.pathParam("request");
+
+        ServiceProxy service = proxies.get(name);
+        if (service == null) {
+            log.error("Delete push response could not find service " + name);
+            DevProxyServer.error(ctx, 404, "Service not found: " + name);
+            return;
+        }
+        ProxySession session = service.sessions.get(sessionId);
+        if (session == null) {
+            log.error("Delete push response could not find service " + name + " session " + sessionId);
+            DevProxyServer.error(ctx, 404, "Session not found: " + name + " for service " + name);
+            return;
+        }
+        RoutingContext proxiedCtx = session.dequeueResponse(requestId);
+        if (proxiedCtx == null) {
+            log.error("Delete push response could not request " + requestId + " for service " + name + " session " + sessionId);
+            DevProxyServer.error(ctx, 404, "Request " + requestId + " not found");
+            return;
+        }
+        proxiedCtx.fail(500);
+        ctx.response().setStatusCode(204).end();
+    }
+
 
     public void pollNext(RoutingContext ctx) {
         String name = ctx.pathParam("service");
