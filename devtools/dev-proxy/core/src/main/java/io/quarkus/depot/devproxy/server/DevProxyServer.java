@@ -11,21 +11,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jboss.logging.Logger;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.vertx.core.Handler;
+import io.vertx.core.MultiMap;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.Cookie;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
-import org.jboss.logging.Logger;
-
-import com.fasterxml.jackson.core.type.TypeReference;
-
-import io.vertx.core.Handler;
-import io.vertx.core.MultiMap;
-import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.jackson.JacksonCodec;
 import io.vertx.core.streams.Pipe;
@@ -119,6 +120,16 @@ public class DevProxyServer {
     void init() {
         client = vertx.createHttpClient();
         // API routes
+        router.route().handler((context) -> {
+            if (context.get("continue-sent") == null) {
+                String expect = context.request().getHeader(HttpHeaderNames.EXPECT);
+                if (expect != null && expect.equalsIgnoreCase("100-continue")) {
+                    context.put("continue-sent", true);
+                    context.response().writeContinue();
+                }
+            }
+            context.next();
+        });
         router.route(DevProxyServer.PROXY_API_PATH + "/*").handler(BodyHandler.create());
         router.route(SERVICES_API_PATH).method(HttpMethod.POST).handler(this::addService);
         router.route(SERVICES_API_PATH).method(HttpMethod.GET).handler(this::getServices);
@@ -178,7 +189,6 @@ public class DevProxyServer {
             Boolean isChunked = DevProxyServer.isChunked(source.headers());
             destination.setChunked(len == -1 && Boolean.TRUE == isChunked);
         }
-
         Pipe<Buffer> pipe = body.stream().pipe();
         pipe.endOnComplete(true);
         pipe.endOnFailure(false);
@@ -190,7 +200,7 @@ public class DevProxyServer {
     }
 
     public void proxy(RoutingContext ctx) {
-        log.info("*** entered proxy ***");
+        log.debug("*** entered proxy ***");
         List<String> dp = ctx.queryParam("_dp");
         if (dp.isEmpty()) {
             DevProxyServer.error(ctx, 404, "No proxy routing information");
@@ -202,7 +212,7 @@ public class DevProxyServer {
             DevProxyServer.error(ctx, 404, "No proxy registered for: " + name);
             return;
         }
-        log.infov("Proxy to: {0}", name);
+        log.debugv("Proxy to: {0}", name);
 
         // Get session id from header or cookie
         String sessionId = ctx.request().getHeader(SESSION_HEADER);
@@ -214,12 +224,12 @@ public class DevProxyServer {
                 sessionId = GLOBAL_PROXY_SESSION;
             }
         }
-        log.infov("Looking for session {0}", sessionId);
+        log.debugv("Looking for session {0}", sessionId);
 
         ProxySession session = service.sessions.get(sessionId);
         if (session != null && session.running) {
             try {
-                log.infov("Enqueued request for service {0} of proxy session {1}", name, sessionId);
+                log.debugv("Enqueued request for service {0} of proxy session {1}", name, sessionId);
                 session.queue.put(ctx);
             } catch (InterruptedException e) {
                 DevProxyServer.error(ctx, 500, "Could not enqueue proxied request");
@@ -250,7 +260,7 @@ public class DevProxyServer {
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
             session = new ProxySession();
-            log.infov("Client Connect to service {0} and session {1}", name, sessionId);
+            log.debugv("Client Connect to service {0} and session {1}", name, sessionId);
             service.sessions.put(sessionId, session);
         }
         ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/" + name + "/session/" + sessionId)
@@ -320,12 +330,12 @@ public class DevProxyServer {
                 proxiedResponse.headers().add(headerName, val);
             }
         });
-        DevProxyServer.sendBody(pushedResponse, proxiedResponse);
+        sendBody(pushedResponse, proxiedResponse);
         if (keepAlive) {
-            log.infov("Keep alive {0} {1}", name, sessionId);
+            log.debugv("Keep alive {0} {1}", name, sessionId);
             executePoll(ctx, session, name, sessionId);
         } else {
-            log.infov("End polling {0} {1}", name, sessionId);
+            log.debugv("End polling {0} {1}", name, sessionId);
             ctx.response().setStatusCode(204).end();
         }
     }
@@ -357,11 +367,10 @@ public class DevProxyServer {
         ctx.response().setStatusCode(204).end();
     }
 
-
     public void pollNext(RoutingContext ctx) {
         String name = ctx.pathParam("service");
         String sessionId = ctx.pathParam("session");
-        log.infov("pollNext {0} {1}", name, sessionId);
+        log.debugv("pollNext {0} {1}", name, sessionId);
 
         ServiceProxy service = proxies.get(name);
         if (service == null) {
@@ -390,20 +399,20 @@ public class DevProxyServer {
                 ctx.request().connection().exceptionHandler((v) -> closed.set(true));
                 RoutingContext proxiedCtx = null;
                 try {
-                    log.infov("Polling {0} {1}", name, sessionId);
+                    log.debugv("Polling {0} {1}", name, sessionId);
                     proxiedCtx = session.queue.poll(POLL_TIMEOUT, TimeUnit.MILLISECONDS);
                     if (proxiedCtx != null) {
-                        log.infov("Got request {0} {1}", name, sessionId);
+                        log.debugv("Got request {0} {1}", name, sessionId);
                         if (closed.get()) {
-                            log.info("Polled message but connection was closed, returning to queue");
+                            log.debug("Polled message but connection was closed, returning to queue");
                             session.queue.put(proxiedCtx);
                             return;
                         }
                     } else if (closed.get()) {
-                        log.info("Polled message timeout, client closed");
+                        log.debug("Polled message timeout, client closed");
                         return;
                     } else {
-                        log.info("Polled message timeout, sending 408");
+                        log.debug("Polled message timeout, sending 408");
                         ctx.fail(408);
                         return;
                     }
@@ -413,6 +422,7 @@ public class DevProxyServer {
                 }
                 pollResponse.setStatusCode(200);
                 HttpServerRequest proxiedRequest = proxiedCtx.request();
+                proxiedRequest.pause();
                 proxiedRequest.headers().forEach((key, val) -> {
                     if (key.equalsIgnoreCase("Content-Length")) {
                         return;
@@ -426,8 +436,7 @@ public class DevProxyServer {
                 pollResponse.putHeader(RESPONSE_LINK, responsePath);
                 pollResponse.putHeader(METHOD_HEADER, proxiedRequest.method().toString());
                 pollResponse.putHeader(URI_HEADER, proxiedRequest.uri());
-
-                DevProxyServer.sendBody(proxiedRequest, pollResponse);
+                sendBody(proxiedRequest, pollResponse);
             }
         }, false, null);
     }

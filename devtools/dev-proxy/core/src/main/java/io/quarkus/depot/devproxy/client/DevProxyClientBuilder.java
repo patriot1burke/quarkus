@@ -1,28 +1,19 @@
 package io.quarkus.depot.devproxy.client;
 
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 
 public class DevProxyClientBuilder {
-    private DevProxyClient devProxyClient;
-    private Vertx vertx;
-    DevProxyClientBuilder(DevProxyClient devProxyClient) {
-        this.devProxyClient = devProxyClient;
-    }
+    private final DevProxyClient devProxyClient;
+    private final Vertx vertx;
 
-    public DevProxyClientBuilder runtime(Vertx vertx) {
+    DevProxyClientBuilder(Vertx vertx) {
+        this.devProxyClient = new DevProxyClient();
         this.vertx = vertx;
-        return this;
     }
 
     public DevProxyClientBuilder whoami(String whoami) {
         devProxyClient.whoami = whoami;
-        return this;
-    }
-
-    public DevProxyClientBuilder service(String name) {
-        devProxyClient.service = name;
         return this;
     }
 
@@ -48,14 +39,16 @@ public class DevProxyClientBuilder {
         return this;
     }
 
-    public DevProxyClientBuilder service(String host, int port, boolean ssl) {
+    public DevProxyClientBuilder service(String name, String host, int port, boolean ssl) {
         HttpClientOptions options = new HttpClientOptions();
         if (ssl) {
             options.setSsl(true).setTrustAll(true);
         }
-        return service(host, port, options);
+        return service(name, host, port, options);
     }
-    public DevProxyClientBuilder service(String host, int port, HttpClientOptions options) {
+
+    public DevProxyClientBuilder service(String name, String host, int port, HttpClientOptions options) {
+        devProxyClient.service = name;
         devProxyClient.serviceHost = host;
         devProxyClient.servicePort = port;
         options.setDefaultHost(host);
@@ -65,9 +58,6 @@ public class DevProxyClientBuilder {
     }
 
     public DevProxyClient build() {
-        if (devProxyClient.serviceClient == null) {
-            service("localhost", 8080, false);
-        }
         return devProxyClient;
     }
 }

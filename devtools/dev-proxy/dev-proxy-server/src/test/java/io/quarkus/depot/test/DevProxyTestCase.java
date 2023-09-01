@@ -4,9 +4,7 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.equalTo;
 
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 import jakarta.inject.Inject;
 
@@ -15,16 +13,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.quarkus.depot.devproxy.ProxyUtils;
+import io.quarkus.depot.devproxy.client.DevProxyClient;
 import io.quarkus.depot.devproxy.server.DevProxyServer;
 import io.quarkus.depot.devproxy.server.Service;
 import io.quarkus.test.junit.QuarkusTest;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.HttpClientRequest;
+import io.vertx.core.http.HttpClientResponse;
+import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
-import io.vertx.ext.web.client.HttpRequest;
-import io.vertx.ext.web.client.HttpResponse;
-import io.vertx.ext.web.client.WebClient;
 
 @QuarkusTest
 public class DevProxyTestCase {
@@ -34,7 +34,7 @@ public class DevProxyTestCase {
 
     static HttpServer myService;
 
-    static WebClient client;
+    static HttpServer localService;
 
     @BeforeEach
     public void before() {
@@ -46,7 +46,10 @@ public class DevProxyTestCase {
             request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("my-service");
         }).listen(9091);
 
-        client = WebClient.create(vertx);
+        localService = vertx.createHttpServer();
+        localService.requestHandler(request -> {
+            request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("local");
+        }).listen(9092);
 
         // initialize
         testCreateService();
@@ -78,9 +81,9 @@ public class DevProxyTestCase {
     @AfterAll
     public static void after() {
         if (myService != null)
-            myService.close();
-        if (client != null)
-            client.close();
+            ProxyUtils.await(1000, myService.close());
+        if (localService != null)
+            ProxyUtils.await(1000, localService.close());
     }
 
     @Test
@@ -100,52 +103,111 @@ public class DevProxyTestCase {
                 .then()
                 .statusCode(200)
                 .body(equalTo("my-service"));
+        given()
+                .when()
+                .port(9091)
+                .body("hello")
+                .contentType("text/plain")
+                .post("/yo")
+                .then()
+                .statusCode(200)
+                .body(equalTo("my-service"));
+        given()
+                .when()
+                .queryParam("_dp", "my-service")
+                .body("hello")
+                .contentType("text/plain")
+                .then()
+                .statusCode(200)
+                .body(equalTo("my-service"));
 
-    }
-
-    static HttpResponse<Buffer> awaitResult(HttpRequest<Buffer> request) throws Exception {
-        return awaitResult(request, 100);
-    }
-
-    static HttpResponse<Buffer> awaitResult(HttpRequest<Buffer> request, long time) throws Exception {
-        CountDownLatch testLatch = new CountDownLatch(1);
-        Future<HttpResponse<Buffer>> futureResponse = request.send()
-                .onSuccess(event -> testLatch.countDown())
-                .onFailure(event -> testLatch.countDown());
-        testLatch.await(time, TimeUnit.MILLISECONDS);
-        return futureResponse.result();
-    }
-
-    static HttpResponse<Buffer> awaitResult(long time, Supplier<HttpRequest<Buffer>> supplier) throws Exception {
-        return awaitResult(supplier.get(), time);
-    }
-
-    static HttpResponse<Buffer> awaitResult(Supplier<HttpRequest<Buffer>> supplier) throws Exception {
-        return awaitResult(supplier.get(), 100);
     }
 
     @Test
     public void testGlobalSession() throws Exception {
-        HttpResponse<Buffer> res = awaitResult(() -> client
-                .post(8081, "localhost", DevProxyServer.CLIENT_API_PATH + "/connect/my-service"));
-        Assertions.assertEquals(res.statusCode(), 204);
+        DevProxyClient client = DevProxyClient.create(vertx)
+                .proxy("localhost", 8081, false)
+                .service("my-service", "localhost", 9092, false)
+                .whoami("bill")
+                .build();
+        Assertions.assertTrue(client.startGlobalSession());
+        try {
+            System.out.println("------------------ POST REQUEST BODY ---------------------");
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .contentType("text/plain")
+                    .body("hello")
+                    .post("/hey")
+                    .then()
+                    .statusCode(200)
+                    .contentType(equalTo("text/plain"))
+                    .body(equalTo("local"));
+            System.out.println("-------------------- GET REQUEST --------------------");
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .get("/yo")
+                    .then()
+                    .statusCode(200)
+                    .contentType(equalTo("text/plain"))
+                    .body(equalTo("local"));
+            System.out.println("------------------ POST REQUEST NO BODY ---------------------");
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .post("/hey")
+                    .then()
+                    .statusCode(200)
+                    .contentType(equalTo("text/plain"))
+                    .body(equalTo("local"));
+        } finally {
+            client.shutdown();
+            System.out.println("-------------------- After Shutdown GET REQUEST --------------------");
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .get("/yo")
+                    .then()
+                    .statusCode(200)
+                    .contentType(equalTo("text/plain"))
+                    .body(equalTo("my-service"));
+        }
+    }
+
+    //@Test
+    public void testPostBody() throws Exception {
+        HttpClient client = vertx.createHttpClient();
+        CountDownLatch latch1 = new CountDownLatch(1);
+        Future<HttpClientRequest> futureReq = client.request(HttpMethod.POST, 8081,
+                "localhost", DevProxyServer.CLIENT_API_PATH + "/connect/my-service")
+                .onComplete(event -> latch1.countDown());
+        latch1.await();
+        HttpClientRequest req = futureReq.result();
+        CountDownLatch latch2 = new CountDownLatch(1);
+        Future<HttpClientResponse> futureRes = req.send()
+                .onComplete(event -> latch2.countDown());
+        latch2.await();
+        HttpClientResponse res = futureRes.result();
         String poll = res.getHeader(DevProxyServer.POLL_LINK);
         Assertions.assertNotNull(poll);
         AtomicBoolean keepAlive = new AtomicBoolean(true);
-        client.post(8081, "localhost", poll).send().onSuccess(event -> {
-            poll(event, keepAlive);
-        });
-        keepAlive.set(true); // only do one request
-        System.out.println("-------------------- GET REQUEST --------------------");
+        client.request(HttpMethod.POST, 8081, "localhost", poll)
+                .onSuccess(pollReq -> pollReq.send().onSuccess(pollRes -> poll(client, pollRes, keepAlive)));
+        keepAlive.set(true);
+        System.out.println("------------------ POST REQUEST ---------------------");
         given()
                 .when()
                 .queryParam("_dp", "my-service")
-                .get("/yo")
+                .contentType("text/plain")
+                .body("hello")
+                .post("/hey")
                 .then()
                 .statusCode(200)
                 .contentType(equalTo("text/plain"))
-                .body(equalTo("GET$/yo?_dp=my-service"));
-        System.out.println("------------------ POST REQUEST ---------------------");
+                .body(equalTo("hello"));
+        keepAlive.set(false); // only do one request
+        System.out.println("------------------ POST REQUEST NO BODY ---------------------");
         given()
                 .when()
                 .queryParam("_dp", "my-service")
@@ -153,7 +215,7 @@ public class DevProxyTestCase {
                 .then()
                 .statusCode(200)
                 .contentType(equalTo("text/plain"))
-                .body(equalTo("POST$/hey?_dp=my-service"));
+                .body(equalTo("EMPTY"));
         given()
                 .when()
                 .delete(DevProxyServer.CLIENT_API_PATH + "/connect/my-service")
@@ -162,26 +224,37 @@ public class DevProxyTestCase {
 
     }
 
-    private static void poll(HttpResponse<Buffer> pollResponse, AtomicBoolean keepAlive) {
-        System.out.println("client poll");
-        if (pollResponse.statusCode() != 200) {
-            System.out.println("Client failed with : " + pollResponse.statusCode());
-            return;
-        }
-        String method = pollResponse.getHeader(DevProxyServer.METHOD_HEADER);
-        String uri = pollResponse.getHeader(DevProxyServer.URI_HEADER);
-        String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
-        client.post(8081, "localhost", responsePath)
-                .addQueryParam("keepAlive", keepAlive.toString())
-                .putHeader(DevProxyServer.STATUS_CODE_HEADER, "200")
-                .putHeader(DevProxyServer.HEADER_FORWARD_PREFIX + "Content-Type", "text/plain")
-                .sendBuffer(Buffer.buffer(method + "$" + uri))
-                .onSuccess(event -> {
-                    if (event.statusCode() == 200) {
-                        poll(event, keepAlive);
+    private static void poll(HttpClient client, HttpClientResponse pollResponse, AtomicBoolean keepAlive) {
+        System.out.println("========== client poll");
+        pollResponse.body()
+                .onFailure(event -> System.out.println(" FAILED TO GET POLL RESPONSE BODY!!!"))
+                .onSuccess(buffer -> {
+                    String bd = buffer.toString();
+                    if (bd.isEmpty())
+                        bd = "EMPTY";
+                    String body = bd;
+                    System.out.println("poll response Body: " + body);
+                    if (pollResponse.statusCode() != 200) {
+                        System.out.println("Client failed with : " + pollResponse.statusCode());
+                        return;
                     }
+                    String method = pollResponse.getHeader(DevProxyServer.METHOD_HEADER);
+                    String uri = pollResponse.getHeader(DevProxyServer.URI_HEADER);
+                    String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
+
+                    client.request(HttpMethod.POST, 8081, "localhost", responsePath + "?keepAlive=" + keepAlive.get())
+                            .onSuccess(req -> {
+                                req.putHeader(DevProxyServer.STATUS_CODE_HEADER, "200")
+                                        .putHeader(DevProxyServer.HEADER_FORWARD_PREFIX + "Content-Type", "text/plain")
+                                        .send(body)
+                                        .onSuccess(event -> {
+                                            if (event.statusCode() == 200) {
+                                                poll(client, event, keepAlive);
+                                            }
+                                        });
+
+                            });
                 });
 
     }
-
 }
