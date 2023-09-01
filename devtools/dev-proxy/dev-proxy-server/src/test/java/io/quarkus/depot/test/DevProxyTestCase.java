@@ -3,8 +3,9 @@ package io.quarkus.depot.test;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.equalTo;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import jakarta.inject.Inject;
 
@@ -16,21 +17,29 @@ import org.junit.jupiter.api.Test;
 import io.quarkus.depot.devproxy.ProxyUtils;
 import io.quarkus.depot.devproxy.client.DevProxyClient;
 import io.quarkus.depot.devproxy.server.DevProxyServer;
+import io.quarkus.depot.devproxy.server.HostNameServiceRoutingStrategy;
+import io.quarkus.depot.devproxy.server.PathParamServiceRoutingStrategy;
+import io.quarkus.depot.devproxy.server.QueryParamServiceRoutingStrategy;
 import io.quarkus.depot.devproxy.server.Service;
+import io.quarkus.depot.devproxy.server.ServiceRoutingStrategy;
 import io.quarkus.test.junit.QuarkusTest;
-import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
-import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
+import io.vertx.ext.web.client.HttpResponse;
+import io.vertx.ext.web.client.WebClient;
 
 @QuarkusTest
 public class DevProxyTestCase {
 
     @Inject
     public Vertx vertx;
+
+    @Inject
+    public DevProxyServer server;
 
     static HttpServer myService;
 
@@ -48,7 +57,10 @@ public class DevProxyTestCase {
 
         localService = vertx.createHttpServer();
         localService.requestHandler(request -> {
-            request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("local");
+            request.response()
+                    .setStatusCode(200)
+                    .putHeader("Content-Type", "text/plain")
+                    .end("local");
         }).listen(9092);
 
         // initialize
@@ -87,40 +99,154 @@ public class DevProxyTestCase {
     }
 
     @Test
-    public void testServiceApiAndProxy() {
+    public void testRegex() throws Exception {
+        String pattern = "(?<service>\\w+)\\.mycompany\\.com";
+        Pattern compile = Pattern.compile(pattern);
+        Matcher matcher = compile.matcher("myservice.mycompany.com");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
 
-        given()
-                .when()
-                .port(9091)
-                .get("/yo")
-                .then()
-                .statusCode(200)
-                .body(equalTo("my-service"));
-        given()
-                .when()
-                .queryParam("_dp", "my-service")
-                .get("/yo")
-                .then()
-                .statusCode(200)
-                .body(equalTo("my-service"));
-        given()
-                .when()
-                .port(9091)
-                .body("hello")
-                .contentType("text/plain")
-                .post("/yo")
-                .then()
-                .statusCode(200)
-                .body(equalTo("my-service"));
-        given()
-                .when()
-                .queryParam("_dp", "my-service")
-                .body("hello")
-                .contentType("text/plain")
-                .then()
-                .statusCode(200)
-                .body(equalTo("my-service"));
+        pattern = "/(?<service>[^/]+).*";
+        compile = Pattern.compile(pattern);
+        matcher = compile.matcher("/myservice");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
+        matcher = compile.matcher("/myservice/");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
+        matcher = compile.matcher("/myservice/foo/bar");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
 
+        pattern = "/(?<service>[^/]+).*.*";
+        compile = Pattern.compile(pattern);
+        matcher = compile.matcher("/myservice");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
+        matcher = compile.matcher("/myservice/");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
+        matcher = compile.matcher("/myservice/foo/bar");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("myservice", matcher.group("service"));
+
+        pattern = "localhost\\.(?<service>[^:]+)(:\\d+)?";
+        compile = Pattern.compile(pattern);
+        matcher = compile.matcher("localhost.my-service:8081");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("my-service", matcher.group("service"));
+        matcher = compile.matcher("localhost.my-service");
+        Assertions.assertTrue(matcher.matches());
+        Assertions.assertEquals("my-service", matcher.group("service"));
+
+    }
+
+    @Test
+    public void testProxyQueryParamStrategy() {
+        ServiceRoutingStrategy oldStrategy = server.getRoutingStrategy();
+        try {
+            server.setRoutingStrategy(new QueryParamServiceRoutingStrategy("_dp"));
+
+            given()
+                    .when()
+                    .port(9091)
+                    .get("/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+            given()
+                    .when()
+                    .port(9091)
+                    .body("hello")
+                    .contentType("text/plain")
+                    .post("/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .get("/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+            given()
+                    .when()
+                    .get("/yo")
+                    .then()
+                    .statusCode(404);
+            given()
+                    .when()
+                    .queryParam("_dp", "nowhere")
+                    .get("/yo")
+                    .then()
+                    .statusCode(404);
+            given()
+                    .when()
+                    .queryParam("_dp", "my-service")
+                    .body("hello")
+                    .contentType("text/plain")
+                    .post("/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+        } finally {
+            server.setRoutingStrategy(oldStrategy);
+        }
+    }
+
+    @Test
+    public void testProxyPathParamStrategy() {
+        ServiceRoutingStrategy oldStrategy = server.getRoutingStrategy();
+        try {
+            server.setRoutingStrategy(new PathParamServiceRoutingStrategy());
+
+            given()
+                    .when()
+                    .get("/my-service/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+            given()
+                    .when()
+                    .body("hello")
+                    .contentType("text/plain")
+                    .post("/my-service/yo")
+                    .then()
+                    .statusCode(200)
+                    .body(equalTo("my-service"));
+            given()
+                    .when()
+                    .get("/yo")
+                    .then()
+                    .statusCode(404);
+            given()
+                    .when()
+                    .get("/nowhere/yo")
+                    .then()
+                    .statusCode(404);
+        } finally {
+            server.setRoutingStrategy(oldStrategy);
+        }
+    }
+
+    @Test
+    public void testHostNameStrategy() {
+        WebClient client = WebClient.create(vertx);
+        ServiceRoutingStrategy oldStrategy = server.getRoutingStrategy();
+        try {
+            server.setRoutingStrategy(new HostNameServiceRoutingStrategy("localhost\\.(?<service>[^:]+)"));
+            HttpResponse<Buffer> res = ProxyUtils.await(100,
+                    client.get(8081, "localhost", "/yo")
+                            .virtualHost("localhost.my-service")
+                            .send());
+            Assertions.assertEquals(200, res.statusCode());
+            Assertions.assertEquals(res.bodyAsString(), "my-service");
+
+        } finally {
+            server.setRoutingStrategy(oldStrategy);
+            client.close();
+        }
     }
 
     @Test
@@ -173,55 +299,6 @@ public class DevProxyTestCase {
                     .contentType(equalTo("text/plain"))
                     .body(equalTo("my-service"));
         }
-    }
-
-    //@Test
-    public void testPostBody() throws Exception {
-        HttpClient client = vertx.createHttpClient();
-        CountDownLatch latch1 = new CountDownLatch(1);
-        Future<HttpClientRequest> futureReq = client.request(HttpMethod.POST, 8081,
-                "localhost", DevProxyServer.CLIENT_API_PATH + "/connect/my-service")
-                .onComplete(event -> latch1.countDown());
-        latch1.await();
-        HttpClientRequest req = futureReq.result();
-        CountDownLatch latch2 = new CountDownLatch(1);
-        Future<HttpClientResponse> futureRes = req.send()
-                .onComplete(event -> latch2.countDown());
-        latch2.await();
-        HttpClientResponse res = futureRes.result();
-        String poll = res.getHeader(DevProxyServer.POLL_LINK);
-        Assertions.assertNotNull(poll);
-        AtomicBoolean keepAlive = new AtomicBoolean(true);
-        client.request(HttpMethod.POST, 8081, "localhost", poll)
-                .onSuccess(pollReq -> pollReq.send().onSuccess(pollRes -> poll(client, pollRes, keepAlive)));
-        keepAlive.set(true);
-        System.out.println("------------------ POST REQUEST ---------------------");
-        given()
-                .when()
-                .queryParam("_dp", "my-service")
-                .contentType("text/plain")
-                .body("hello")
-                .post("/hey")
-                .then()
-                .statusCode(200)
-                .contentType(equalTo("text/plain"))
-                .body(equalTo("hello"));
-        keepAlive.set(false); // only do one request
-        System.out.println("------------------ POST REQUEST NO BODY ---------------------");
-        given()
-                .when()
-                .queryParam("_dp", "my-service")
-                .post("/hey")
-                .then()
-                .statusCode(200)
-                .contentType(equalTo("text/plain"))
-                .body(equalTo("EMPTY"));
-        given()
-                .when()
-                .delete(DevProxyServer.CLIENT_API_PATH + "/connect/my-service")
-                .then()
-                .statusCode(204);
-
     }
 
     private static void poll(HttpClient client, HttpClientResponse pollResponse, AtomicBoolean keepAlive) {

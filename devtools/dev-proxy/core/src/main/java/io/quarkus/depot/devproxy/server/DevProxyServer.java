@@ -112,12 +112,13 @@ public class DevProxyServer {
 
     public static final long POLL_TIMEOUT = 1000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
-    Map<String, ServiceProxy> proxies = new ConcurrentHashMap<>();
-    Vertx vertx;
-    Router router;
-    HttpClient client;
+    protected Map<String, ServiceProxy> proxies = new ConcurrentHashMap<>();
+    protected Vertx vertx;
+    protected Router router;
+    protected HttpClient client;
+    protected ServiceRoutingStrategy routingStrategy = new QueryParamServiceRoutingStrategy("_dp");
 
-    void init() {
+    protected void init() {
         client = vertx.createHttpClient();
         // API routes
         router.route().handler((context) -> {
@@ -199,16 +200,41 @@ public class DevProxyServer {
         });
     }
 
+    public Vertx getVertx() {
+        return vertx;
+    }
+
+    public void setVertx(Vertx vertx) {
+        this.vertx = vertx;
+    }
+
+    public Router getRouter() {
+        return router;
+    }
+
+    public void setRouter(Router router) {
+        this.router = router;
+    }
+
+    public ServiceRoutingStrategy getRoutingStrategy() {
+        return routingStrategy;
+    }
+
+    public void setRoutingStrategy(ServiceRoutingStrategy routingStrategy) {
+        this.routingStrategy = routingStrategy;
+    }
+
     public void proxy(RoutingContext ctx) {
         log.debug("*** entered proxy ***");
-        List<String> dp = ctx.queryParam("_dp");
-        if (dp.isEmpty()) {
-            DevProxyServer.error(ctx, 404, "No proxy routing information");
+        String name = routingStrategy.match(ctx);
+        if (name == null) {
+            log.debug("No proxy routing information");
+            error(ctx, 404, "No proxy routing information");
             return;
         }
-        String name = dp.get(0);
         ServiceProxy service = proxies.get(name);
         if (service == null) {
+            log.debugv("No proxy registered for: {0}", name);
             DevProxyServer.error(ctx, 404, "No proxy registered for: " + name);
             return;
         }
