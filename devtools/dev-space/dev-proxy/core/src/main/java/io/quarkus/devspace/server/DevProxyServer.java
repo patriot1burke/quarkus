@@ -1,7 +1,6 @@
-package io.quarkus.depot.devproxy.server;
+package io.quarkus.devspace.server;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -12,8 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.jboss.logging.Logger;
-
-import com.fasterxml.jackson.core.type.TypeReference;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.vertx.core.Handler;
@@ -27,8 +24,6 @@ import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
-import io.vertx.core.json.Json;
-import io.vertx.core.json.jackson.JacksonCodec;
 import io.vertx.core.streams.Pipe;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -66,13 +61,13 @@ public class DevProxyServer {
     }
 
     class ServiceProxy {
-        public ServiceProxy(Service service) {
-            this.service = service;
+        public ServiceProxy(ServiceConfig service) {
+            this.config = service;
             this.proxy = HttpProxy.reverseProxy(client);
             proxy.origin(service.getPort(), service.getHost());
         }
 
-        final Service service;
+        final ServiceConfig config;
         final HttpProxy proxy;
         final Map<String, ProxySession> sessions = new ConcurrentHashMap<>();
 
@@ -98,7 +93,6 @@ public class DevProxyServer {
 
     public static final String CLIENT_API_PATH = "/_dev_proxy_client_";
     public static final String SERVICES_API_PATH = DevProxyServer.PROXY_API_PATH + "/services";
-    public static final String UPLOAD_SERVICES_API_PATH = DevProxyServer.PROXY_API_PATH + "/upload/services";
     public static final String GLOBAL_PROXY_SESSION = "_depot_global";
     public static final String SESSION_HEADER = "X-Depot-Proxy-Session";
     public static final String HEADER_FORWARD_PREFIX = "X-Depot-Fwd-";
@@ -112,13 +106,12 @@ public class DevProxyServer {
 
     public static final long POLL_TIMEOUT = 1000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
-    protected Map<String, ServiceProxy> proxies = new ConcurrentHashMap<>();
+    protected ServiceProxy service;
     protected Vertx vertx;
     protected Router router;
     protected HttpClient client;
-    protected ServiceRoutingStrategy routingStrategy = new QueryParamServiceRoutingStrategy("_dp");
 
-    protected void init() {
+    protected void init(ServiceConfig config) {
         client = vertx.createHttpClient();
         // API routes
         router.route().handler((context) -> {
@@ -132,22 +125,21 @@ public class DevProxyServer {
             context.next();
         });
         router.route(DevProxyServer.PROXY_API_PATH + "/*").handler(BodyHandler.create());
-        router.route(SERVICES_API_PATH).method(HttpMethod.POST).handler(this::addService);
-        router.route(SERVICES_API_PATH).method(HttpMethod.GET).handler(this::getServices);
-
         // CLIENT API
-        router.route(CLIENT_API_PATH + "/poll/:service/session/:session").method(HttpMethod.POST).handler(this::pollNext);
-        router.route(CLIENT_API_PATH + "/connect/:service").method(HttpMethod.POST).handler(this::clientConnect);
-        router.route(CLIENT_API_PATH + "/connect/:service").method(HttpMethod.DELETE).handler(this::deleteClientConnection);
-        router.route(CLIENT_API_PATH + "/push/response/:service/session/:session/request/:request")
+        router.route(CLIENT_API_PATH + "/poll/session/:session").method(HttpMethod.POST).handler(this::pollNext);
+        router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.POST).handler(this::clientConnect);
+        router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.DELETE).handler(this::deleteClientConnection);
+        router.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
                 .method(HttpMethod.POST)
                 .handler(this::pushResponse);
-        router.route(CLIENT_API_PATH + "/push/response/:service/session/:session/request/:request")
+        router.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
                 .method(HttpMethod.DELETE)
                 .handler(this::deletePushResponse);
+        router.route(CLIENT_API_PATH + "/*").handler(routingContext -> routingContext.fail(404));
 
         // proxy to deployed services
         router.route().handler(this::proxy);
+        service = new ServiceProxy(config);
     }
 
     static void error(RoutingContext ctx, int status, String msg) {
@@ -216,30 +208,8 @@ public class DevProxyServer {
         this.router = router;
     }
 
-    public ServiceRoutingStrategy getRoutingStrategy() {
-        return routingStrategy;
-    }
-
-    public void setRoutingStrategy(ServiceRoutingStrategy routingStrategy) {
-        this.routingStrategy = routingStrategy;
-    }
-
     public void proxy(RoutingContext ctx) {
         log.debug("*** entered proxy ***");
-        String name = routingStrategy.match(ctx);
-        if (name == null) {
-            log.debug("No proxy routing information");
-            error(ctx, 404, "No proxy routing information");
-            return;
-        }
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.debugv("No proxy registered for: {0}", name);
-            DevProxyServer.error(ctx, 404, "No proxy registered for: " + name);
-            return;
-        }
-        log.debugv("Proxy to: {0}", name);
-
         // Get session id from header or cookie
         String sessionId = ctx.request().getHeader(SESSION_HEADER);
         if (sessionId == null) {
@@ -255,7 +225,7 @@ public class DevProxyServer {
         ProxySession session = service.sessions.get(sessionId);
         if (session != null && session.running) {
             try {
-                log.debugv("Enqueued request for service {0} of proxy session {1}", name, sessionId);
+                log.debugv("Enqueued request for service {0} of proxy session {1}", service.config.getName(), sessionId);
                 session.queue.put(ctx);
             } catch (InterruptedException e) {
                 DevProxyServer.error(ctx, 500, "Could not enqueue proxied request");
@@ -269,7 +239,6 @@ public class DevProxyServer {
 
     public void clientConnect(RoutingContext ctx) {
         // TODO: add security 401 protocol
-        String name = ctx.pathParam("service");
 
         List<String> sessionQueryParam = ctx.queryParam("session");
         String sessionId = GLOBAL_PROXY_SESSION;
@@ -277,25 +246,18 @@ public class DevProxyServer {
             sessionId = sessionQueryParam.get(0);
         }
 
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.error("Poll next could not find service " + name);
-            DevProxyServer.error(ctx, 404, "Service not found: " + name);
-            return;
-        }
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
             session = new ProxySession();
-            log.debugv("Client Connect to service {0} and session {1}", name, sessionId);
+            log.debugv("Client Connect to service {0} and session {1}", service.config.getName(), sessionId);
             service.sessions.put(sessionId, session);
         }
-        ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/" + name + "/session/" + sessionId)
+        ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/session/" + sessionId)
                 .end();
     }
 
     public void deleteClientConnection(RoutingContext ctx) {
         // TODO: add security 401 protocol
-        String name = ctx.pathParam("service");
 
         List<String> sessionQueryParam = ctx.queryParam("session");
         String sessionId = GLOBAL_PROXY_SESSION;
@@ -303,39 +265,27 @@ public class DevProxyServer {
             sessionId = sessionQueryParam.get(0);
         }
 
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.error("Poll next could not find service " + name);
-            DevProxyServer.error(ctx, 404, "Service not found: " + name);
-            return;
-        }
         service.removeSession(sessionId);
         ctx.response().setStatusCode(204).end();
     }
 
     public void pushResponse(RoutingContext ctx) {
-        String name = ctx.pathParam("service");
         String sessionId = ctx.pathParam("session");
         String requestId = ctx.pathParam("request");
         String kp = ctx.queryParams().get("keepAlive");
         boolean keepAlive = kp == null ? false : Boolean.parseBoolean(kp);
 
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.error("Push response could not find service " + name);
-            DevProxyServer.error(ctx, 404, "Service not found: " + name);
-            return;
-        }
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
-            log.error("Push response could not find service " + name + " session " + sessionId);
-            DevProxyServer.error(ctx, 404, "Session not found: " + name + " for service " + name);
+            log.error("Push response could not find service " + service.config.getName() + " session ");
+            DevProxyServer.error(ctx, 404, "Session not found for service " + service.config.getName());
             return;
         }
         RoutingContext proxiedCtx = session.dequeueResponse(requestId);
         if (proxiedCtx == null) {
-            log.error("Push response could not request " + requestId + " for service " + name + " session " + sessionId);
-            ctx.response().putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/" + name + "/session/" + sessionId);
+            log.error("Push response could not request " + requestId + " for service " + service.config.getName() + " session "
+                    + sessionId);
+            ctx.response().putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/session/" + sessionId);
             DevProxyServer.error(ctx, 404, "Request " + requestId + " not found");
             return;
         }
@@ -358,34 +308,28 @@ public class DevProxyServer {
         });
         sendBody(pushedResponse, proxiedResponse);
         if (keepAlive) {
-            log.debugv("Keep alive {0} {1}", name, sessionId);
-            executePoll(ctx, session, name, sessionId);
+            log.debugv("Keep alive {0} {1}", service.config.getName(), sessionId);
+            executePoll(ctx, session, sessionId);
         } else {
-            log.debugv("End polling {0} {1}", name, sessionId);
+            log.debugv("End polling {0} {1}", service.config.getName(), sessionId);
             ctx.response().setStatusCode(204).end();
         }
     }
 
     public void deletePushResponse(RoutingContext ctx) {
-        String name = ctx.pathParam("service");
         String sessionId = ctx.pathParam("session");
         String requestId = ctx.pathParam("request");
 
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.error("Delete push response could not find service " + name);
-            DevProxyServer.error(ctx, 404, "Service not found: " + name);
-            return;
-        }
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
-            log.error("Delete push response could not find service " + name + " session " + sessionId);
-            DevProxyServer.error(ctx, 404, "Session not found: " + name + " for service " + name);
+            log.error("Delete push response could not find service " + service.config.getName() + " session ");
+            DevProxyServer.error(ctx, 404, "Session not found for service " + service.config.getName());
             return;
         }
         RoutingContext proxiedCtx = session.dequeueResponse(requestId);
         if (proxiedCtx == null) {
-            log.error("Delete push response could not request " + requestId + " for service " + name + " session " + sessionId);
+            log.error("Delete push response could not find request " + requestId + " for service " + service.config.getName()
+                    + " session " + sessionId);
             DevProxyServer.error(ctx, 404, "Request " + requestId + " not found");
             return;
         }
@@ -394,26 +338,19 @@ public class DevProxyServer {
     }
 
     public void pollNext(RoutingContext ctx) {
-        String name = ctx.pathParam("service");
         String sessionId = ctx.pathParam("session");
-        log.debugv("pollNext {0} {1}", name, sessionId);
+        log.debugv("pollNext {0} {1}", service.config.getName(), sessionId);
 
-        ServiceProxy service = proxies.get(name);
-        if (service == null) {
-            log.error("Poll next could not find service " + name);
-            DevProxyServer.error(ctx, 404, "Service not found: " + name);
-            return;
-        }
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
-            log.error("Poll next could not find service " + name + " session " + sessionId);
-            DevProxyServer.error(ctx, 404, "Session not found: " + name + " for service " + name);
+            log.error("Poll next could not find service " + service.config.getName() + " session " + sessionId);
+            DevProxyServer.error(ctx, 404, "Session not found for service " + service.config.getName());
             return;
         }
-        executePoll(ctx, session, name, sessionId);
+        executePoll(ctx, session, sessionId);
     }
 
-    private void executePoll(RoutingContext ctx, ProxySession session, String name, String sessionId) {
+    private void executePoll(RoutingContext ctx, ProxySession session, String sessionId) {
         vertx.executeBlocking(new Handler<>() {
             @Override
             public void handle(Promise<Object> event) {
@@ -425,10 +362,10 @@ public class DevProxyServer {
                 ctx.request().connection().exceptionHandler((v) -> closed.set(true));
                 RoutingContext proxiedCtx = null;
                 try {
-                    log.debugv("Polling {0} {1}", name, sessionId);
+                    log.debugv("Polling {0} {1}", service.config.getName(), sessionId);
                     proxiedCtx = session.queue.poll(POLL_TIMEOUT, TimeUnit.MILLISECONDS);
                     if (proxiedCtx != null) {
-                        log.debugv("Got request {0} {1}", name, sessionId);
+                        log.debugv("Got request {0} {1}", service.config.getName(), sessionId);
                         if (closed.get()) {
                             log.debug("Polled message but connection was closed, returning to queue");
                             session.queue.put(proxiedCtx);
@@ -457,7 +394,7 @@ public class DevProxyServer {
                 });
                 String requestId = session.queueResponse(proxiedCtx);
                 pollResponse.putHeader(REQUEST_ID_HEADER, requestId);
-                String responsePath = CLIENT_API_PATH + "/push/response/" + name + "/session/" + sessionId + "/request/"
+                String responsePath = CLIENT_API_PATH + "/push/response/session/" + sessionId + "/request/"
                         + requestId;
                 pollResponse.putHeader(RESPONSE_LINK, responsePath);
                 pollResponse.putHeader(METHOD_HEADER, proxiedRequest.method().toString());
@@ -466,34 +403,4 @@ public class DevProxyServer {
             }
         }, false, null);
     }
-
-    public void uploadServices(RoutingContext ctx) {
-        JacksonCodec codec = (JacksonCodec) Json.CODEC;
-        Map<String, Service> services = codec.fromBuffer(ctx.body().buffer(), new TypeReference<Map<String, Service>>() {
-        });
-    }
-
-    public void addService(RoutingContext ctx) {
-        Service svc = Json.decodeValue(ctx.body().buffer(), Service.class);
-        registerService(svc);
-        ctx.response().setStatusCode(201).end();
-    }
-
-    protected void registerService(Service svc) {
-        if (proxies.containsKey(svc.getName())) {
-            ServiceProxy service = proxies.get(svc.getName());
-            service.proxy.origin(svc.getPort(), svc.getHost());
-        } else {
-            proxies.put(svc.getName(), new ServiceProxy(svc));
-        }
-    }
-
-    public void getServices(RoutingContext ctx) {
-        Map<String, Service> services = new HashMap<>();
-        for (ServiceProxy proxy : proxies.values()) {
-            services.put(proxy.service.getName(), proxy.service);
-        }
-        ctx.response().setStatusCode(200).putHeader("Content-Type", "application/json").end(Json.encodePrettily(services));
-    }
-
 }

@@ -1,4 +1,4 @@
-package io.quarkus.depot.devproxy.client;
+package io.quarkus.devspace.client;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClientOptions;

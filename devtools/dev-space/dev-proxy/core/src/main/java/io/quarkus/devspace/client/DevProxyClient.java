@@ -1,4 +1,4 @@
-package io.quarkus.depot.devproxy.client;
+package io.quarkus.devspace.client;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jboss.logging.Logger;
 
-import io.quarkus.depot.devproxy.server.DevProxyServer;
+import io.quarkus.devspace.server.DevProxyServer;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -44,7 +44,7 @@ public class DevProxyClient {
     }
 
     public boolean startSession(String sessionId) throws Exception {
-        String uri = DevProxyServer.CLIENT_API_PATH + "/connect/" + service + "?who=" + whoami + "&session=" + sessionId;
+        String uri = DevProxyServer.CLIENT_API_PATH + "/connect?who=" + whoami + "&session=" + sessionId;
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean();
@@ -64,7 +64,7 @@ public class DevProxyClient {
                 HttpClientResponse response = event1.result();
                 if (response.statusCode() != 204) {
                     response.bodyHandler(body -> {
-                        log.error("Could not connect to startSession" + ": " + body.toString());
+                        log.error("Could not connect to startSession " + response.statusCode() + body.toString());
                         latch.countDown();
                     });
                     return;
@@ -82,8 +82,11 @@ public class DevProxyClient {
         });
         latch.await();
         if (!success.get()) {
+            shutdown = true;
+            running = false;
             proxyClient.close();
             serviceClient.close();
+            return false;
         }
         this.sessionId = sessionId;
         return true;
@@ -234,7 +237,7 @@ public class DevProxyClient {
             // delete session
             CountDownLatch latch = new CountDownLatch(1);
             if (sessionId != null) {
-                String uri = DevProxyServer.CLIENT_API_PATH + "/connect/" + service + "?session=" + sessionId;
+                String uri = DevProxyServer.CLIENT_API_PATH + "/connect?session=" + sessionId;
                 proxyClient.request(HttpMethod.DELETE, uri)
                         .onFailure(event -> {
                             log.error("Failed to delete sesssion on shutdown", event);

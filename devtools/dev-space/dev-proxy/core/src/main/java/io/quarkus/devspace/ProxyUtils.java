@@ -1,4 +1,4 @@
-package io.quarkus.depot.devproxy;
+package io.quarkus.devspace;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

@@ -1,14 +1,14 @@
-package io.quarkus.depot.devproxy.server;
+package io.quarkus.devspace.server;
 
-public class Service {
+public class ServiceConfig {
     private String name;
     private String host;
     private int port;
 
-    public Service() {
+    public ServiceConfig() {
     }
 
-    public Service(String name, String host, int port) {
+    public ServiceConfig(String name, String host, int port) {
         this.name = name;
         this.host = host;
         this.port = port;
