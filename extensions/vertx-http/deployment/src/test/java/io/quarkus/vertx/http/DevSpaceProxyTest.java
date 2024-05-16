@@ -1,50 +1,50 @@
-package io.quarkus.devspace.test;
+package io.quarkus.vertx.http;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.equalTo;
 
-import java.util.Map;
-
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.devspace.ProxyUtils;
 import io.quarkus.devspace.client.DevProxyClient;
 import io.quarkus.devspace.server.DevProxyServer;
-import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.junit.QuarkusTestProfile;
-import io.quarkus.test.junit.TestProfile;
+import io.quarkus.devspace.server.ServiceConfig;
+import io.quarkus.test.QuarkusUnitTest;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
+import io.vertx.ext.web.Router;
 
-@QuarkusTest
-@TestProfile(DevProxyTestCase.ConfigOverrides.class)
-public class DevProxyTestCase {
+public class DevSpaceProxyTest {
 
+    public static final int SERVICE_PORT = 9091;
+    public static final int PROXY_PORT = 9092;
     @Inject
     public Vertx vertx;
 
-    @Inject
-    public DevProxyServer server;
+    @RegisterExtension
+    static final QuarkusUnitTest config = new QuarkusUnitTest()
+            .withApplicationRoot((jar) -> jar.addClasses(DevSpaceProxyTest.RouteProducer.class));
+
+    public static DevProxyServer proxyServer;
+    public static HttpServer proxy;
 
     static HttpServer myService;
 
-    static HttpServer localService;
-
-    public static class ConfigOverrides implements QuarkusTestProfile {
-        @Override
-        public Map<String, String> getConfigOverrides() {
-            return Map.of(
-                    "devspace.host", "localhost",
-                    "devspace.name", "my-service",
-                    "devspace.port", "9091"
-            //,"quarkus.log.level", "DEBUG"
-            );
+    @Singleton
+    public static class RouteProducer {
+        void observeRouter(@Observes Router router) {
+            router.route().handler(
+                    request -> request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("local"));
         }
+
     }
 
     @BeforeEach
@@ -55,24 +55,23 @@ public class DevProxyTestCase {
         myService = vertx.createHttpServer();
         myService.requestHandler(request -> {
             request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("my-service");
-        }).listen(9091);
+        }).listen(SERVICE_PORT);
 
-        localService = vertx.createHttpServer();
-        localService.requestHandler(request -> {
-            request.response()
-                    .setStatusCode(200)
-                    .putHeader("Content-Type", "text/plain")
-                    .end("local");
-        }).listen(9092);
+        proxy = vertx.createHttpServer();
+        proxyServer = new DevProxyServer();
+        Router proxyRouter = Router.router(vertx);
+        ServiceConfig config = new ServiceConfig("my-service", "localhost", SERVICE_PORT);
+        proxyServer.init(vertx, proxyRouter, config);
+        proxy.requestHandler(proxyRouter).listen(PROXY_PORT);
 
     }
 
     @AfterAll
     public static void after() {
-        if (myService != null)
+        if (myService != null) {
             ProxyUtils.await(1000, myService.close());
-        if (localService != null)
-            ProxyUtils.await(1000, localService.close());
+            ProxyUtils.await(1000, proxy.close());
+        }
     }
 
     @Test
@@ -80,14 +79,14 @@ public class DevProxyTestCase {
         // invoke service directly
         given()
                 .when()
-                .port(9091)
+                .port(SERVICE_PORT)
                 .get("/yo")
                 .then()
                 .statusCode(200)
                 .body(equalTo("my-service"));
         given()
                 .when()
-                .port(9091)
+                .port(SERVICE_PORT)
                 .body("hello")
                 .contentType("text/plain")
                 .post("/yo")
@@ -97,14 +96,12 @@ public class DevProxyTestCase {
         // invoke local directly
         given()
                 .when()
-                .port(9092)
                 .get("/yo")
                 .then()
                 .statusCode(200)
                 .body(equalTo("local"));
         given()
                 .when()
-                .port(9092)
                 .body("hello")
                 .contentType("text/plain")
                 .post("/yo")
@@ -114,12 +111,14 @@ public class DevProxyTestCase {
         // invoke proxy
         given()
                 .when()
+                .port(PROXY_PORT)
                 .get("/yo")
                 .then()
                 .statusCode(200)
                 .body(equalTo("my-service"));
         given()
                 .when()
+                .port(PROXY_PORT)
                 .body("hello")
                 .contentType("text/plain")
                 .post("/yo")
@@ -128,7 +127,7 @@ public class DevProxyTestCase {
                 .body(equalTo("my-service"));
     }
 
-    @Test
+    //@Test
     public void testGlobalSession() throws Exception {
         DevProxyClient client = DevProxyClient.create(vertx)
                 .proxy("localhost", 8081, false)

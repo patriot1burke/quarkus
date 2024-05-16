@@ -30,6 +30,7 @@ public class DevProxyClient {
     protected String service;
     protected String pollLink;
     protected CountDownLatch workerShutdown;
+    protected long pollTimeoutMillis = 1000;
 
     protected DevProxyClient() {
 
@@ -82,14 +83,18 @@ public class DevProxyClient {
         });
         latch.await();
         if (!success.get()) {
-            shutdown = true;
-            running = false;
-            proxyClient.close();
-            serviceClient.close();
+            forcedShutdown();
             return false;
         }
         this.sessionId = sessionId;
         return true;
+    }
+
+    public void forcedShutdown() {
+        shutdown = true;
+        running = false;
+        proxyClient.close();
+        serviceClient.close();
     }
 
     protected void pollFailure(Throwable failure) {
@@ -113,7 +118,7 @@ public class DevProxyClient {
         }
         proxyClient.request(HttpMethod.POST, pollLink)
                 .onSuccess(request -> {
-                    request.setTimeout(DevProxyServer.POLL_TIMEOUT)
+                    request.setTimeout(pollTimeoutMillis)
                             .send()
                             .onSuccess(this::handlePoll)
                             //.onSuccess(this::handlePollWaitBody)
@@ -209,7 +214,7 @@ public class DevProxyClient {
                     workerOffline();
                 })
                 .onSuccess(pushRequest -> {
-                    pushRequest.setTimeout(DevProxyServer.POLL_TIMEOUT * 2);
+                    pushRequest.setTimeout(pollTimeoutMillis);
                     pushRequest.putHeader(DevProxyServer.STATUS_CODE_HEADER, Integer.toString(serviceResponse.statusCode()));
                     serviceResponse.headers()
                             .forEach((key, val) -> pushRequest.headers().add(DevProxyServer.HEADER_FORWARD_PREFIX + key, val));

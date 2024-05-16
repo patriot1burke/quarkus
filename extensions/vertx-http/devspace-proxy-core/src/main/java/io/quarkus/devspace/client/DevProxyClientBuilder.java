@@ -57,6 +57,11 @@ public class DevProxyClientBuilder {
         return this;
     }
 
+    public DevProxyClientBuilder pollTimeoutMillis(long timeout) {
+        devProxyClient.pollTimeoutMillis = timeout;
+        return this;
+    }
+
     public DevProxyClient build() {
         return devProxyClient;
     }

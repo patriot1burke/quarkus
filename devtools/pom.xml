@@ -26,6 +26,5 @@
         <module>maven</module>
         <module>gradle</module>
         <module>cli</module>
-        <module>dev-space</module>
     </modules>
 </project>

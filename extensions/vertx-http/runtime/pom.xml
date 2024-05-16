@@ -48,6 +48,10 @@
             <artifactId>quarkus-vertx</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.quarkus.devspace</groupId>
+            <artifactId>devspace-proxy-core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.smallrye.reactive</groupId>
             <artifactId>smallrye-mutiny-vertx-web</artifactId>
         </dependency>

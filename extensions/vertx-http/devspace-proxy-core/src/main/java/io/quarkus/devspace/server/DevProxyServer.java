@@ -32,9 +32,32 @@ import io.vertx.httpproxy.Body;
 import io.vertx.httpproxy.HttpProxy;
 
 public class DevProxyServer {
-    class ProxySession {
+    public class ProxySession {
         final BlockingQueue<RoutingContext> queue = new LinkedBlockingQueue<>();
         final ConcurrentHashMap<String, RoutingContext> responsePending = new ConcurrentHashMap<>();
+        final ServiceProxy proxy;
+        final long timerId;
+        final String sessionId;
+        final String who;
+
+        ProxySession(ServiceProxy proxy, String sessionId, String who) {
+            timerId = vertx.setPeriodic(POLL_TIMEOUT, this::timerCallback);
+            this.proxy = proxy;
+            this.sessionId = sessionId;
+            this.who = who;
+        }
+
+        void timerCallback(Long t) {
+            checkIdle();
+        }
+
+        private void checkIdle() {
+            if (!running)
+                return;
+            if (System.currentTimeMillis() - lastPoll > POLL_TIMEOUT && numPollers == 0) {
+                shutdown();
+            }
+        }
 
         volatile boolean running = true;
         AtomicLong requestId = new AtomicLong(System.currentTimeMillis());
@@ -49,18 +72,47 @@ public class DevProxyServer {
             return responsePending.remove(requestId);
         }
 
-        void shutdown() {
+        synchronized void shutdown() {
+            if (!running)
+                return;
             running = false;
+            proxy.sessions.remove(this.sessionId);
+            vertx.cancelTimer(timerId);
             while (!queue.isEmpty()) {
                 List<RoutingContext> requests = new ArrayList<>();
                 queue.drainTo(requests);
-                requests.stream().forEach((ctx) -> ctx.fail(500));
+                requests.stream().forEach((ctx) -> proxy.proxy.handle(ctx.request()));
             }
+        }
+
+        volatile long lastPoll;
+        volatile int numPollers;
+
+        void pollStarted() {
+            lastPoll = System.currentTimeMillis();
+            numPollers++;
+        }
+
+        void pollProcessing() {
+            lastPoll = System.currentTimeMillis();
+        }
+
+        void pollEnded() {
+            numPollers--;
+            lastPoll = System.currentTimeMillis();
+        }
+
+        synchronized void pollDisconnect() {
+            numPollers--;
+            if (!running) {
+                return;
+            }
+            checkIdle();
         }
 
     }
 
-    class ServiceProxy {
+    public class ServiceProxy {
         public ServiceProxy(ServiceConfig service) {
             this.config = service;
             this.proxy = HttpProxy.reverseProxy(client);
@@ -74,19 +126,6 @@ public class DevProxyServer {
         void shutdown() {
             for (ProxySession session : sessions.values()) {
                 session.shutdown();
-            }
-        }
-
-        void removeSession(String name) {
-            // forward RoutingContext to proxy
-            ProxySession session = sessions.remove(name);
-            if (session != null) {
-                session.running = false;
-                while (!session.queue.isEmpty()) {
-                    List<RoutingContext> requests = new ArrayList<>();
-                    session.queue.drainTo(requests);
-                    requests.stream().forEach((ctx) -> proxy.handle(ctx.request()));
-                }
             }
         }
     }
@@ -104,14 +143,16 @@ public class DevProxyServer {
     public static final String POLL_LINK = "X-Depot-Poll-Path";
     public static final String PROXY_API_PATH = "/_dev_proxy_api_";
 
-    public static final long POLL_TIMEOUT = 1000;
+    protected long POLL_TIMEOUT = 1000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
     protected ServiceProxy service;
     protected Vertx vertx;
     protected Router router;
     protected HttpClient client;
 
-    protected void init(ServiceConfig config) {
+    public void init(Vertx vertx, Router router, ServiceConfig config) {
+        this.vertx = vertx;
+        this.router = router;
         client = vertx.createHttpClient();
         // API routes
         router.route().handler((context) -> {
@@ -192,22 +233,6 @@ public class DevProxyServer {
         });
     }
 
-    public Vertx getVertx() {
-        return vertx;
-    }
-
-    public void setVertx(Vertx vertx) {
-        this.vertx = vertx;
-    }
-
-    public Router getRouter() {
-        return router;
-    }
-
-    public void setRouter(Router router) {
-        this.router = router;
-    }
-
     public void proxy(RoutingContext ctx) {
         log.debug("*** entered proxy ***");
         // Get session id from header or cookie
@@ -245,15 +270,32 @@ public class DevProxyServer {
         if (!sessionQueryParam.isEmpty()) {
             sessionId = sessionQueryParam.get(0);
         }
-
-        ProxySession session = service.sessions.get(sessionId);
-        if (session == null) {
-            session = new ProxySession();
-            log.debugv("Client Connect to service {0} and session {1}", service.config.getName(), sessionId);
-            service.sessions.put(sessionId, session);
+        List<String> whoQueryParam = ctx.queryParam("who");
+        String who = null;
+        if (!whoQueryParam.isEmpty()) {
+            who = whoQueryParam.get(0);
         }
-        ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/session/" + sessionId)
-                .end();
+        if (who == null) {
+            ctx.response().setStatusCode(400).end();
+            log.errorv("Failed Client Connect to service {0} and session {1}: who identity not sent", service.config.getName(),
+                    sessionId);
+            return;
+        }
+        synchronized (this) {
+            ProxySession session = service.sessions.get(sessionId);
+            if (session != null) {
+                if (!who.equals(session.who)) {
+                    log.errorv("Failed Client Connect for {0} to service {1} and session {2}: Existing connection {3}", who,
+                            service.config.getName(), sessionId, session.who);
+                    ctx.response().setStatusCode(409).putHeader("Content-Type", "text/plain").end(session.who);
+
+                }
+            } else {
+                service.sessions.put(sessionId, new ProxySession(service, sessionId, who));
+                ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/session/" + sessionId)
+                        .end();
+            }
+        }
     }
 
     public void deleteClientConnection(RoutingContext ctx) {
@@ -264,8 +306,10 @@ public class DevProxyServer {
         if (!sessionQueryParam.isEmpty()) {
             sessionId = sessionQueryParam.get(0);
         }
-
-        service.removeSession(sessionId);
+        ProxySession session = service.sessions.get(sessionId);
+        if (session != null) {
+            session.shutdown();
+        }
         ctx.response().setStatusCode(204).end();
     }
 
@@ -273,7 +317,7 @@ public class DevProxyServer {
         String sessionId = ctx.pathParam("session");
         String requestId = ctx.pathParam("request");
         String kp = ctx.queryParams().get("keepAlive");
-        boolean keepAlive = kp == null ? false : Boolean.parseBoolean(kp);
+        boolean keepAlive = kp == null ? true : Boolean.parseBoolean(kp);
 
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
@@ -312,6 +356,7 @@ public class DevProxyServer {
             executePoll(ctx, session, sessionId);
         } else {
             log.debugv("End polling {0} {1}", service.config.getName(), sessionId);
+            session.pollEnded();
             ctx.response().setStatusCode(204).end();
         }
     }
@@ -347,11 +392,13 @@ public class DevProxyServer {
             DevProxyServer.error(ctx, 404, "Session not found for service " + service.config.getName());
             return;
         }
+        session.pollStarted();
         executePoll(ctx, session, sessionId);
     }
 
     private void executePoll(RoutingContext ctx, ProxySession session, String sessionId) {
         vertx.executeBlocking(new Handler<>() {
+
             @Override
             public void handle(Promise<Object> event) {
                 final AtomicBoolean closed = new AtomicBoolean(false);
@@ -369,6 +416,7 @@ public class DevProxyServer {
                         if (closed.get()) {
                             log.debug("Polled message but connection was closed, returning to queue");
                             session.queue.put(proxiedCtx);
+                            session.pollDisconnect();
                             return;
                         }
                     } else if (closed.get()) {
@@ -383,6 +431,7 @@ public class DevProxyServer {
                     log.error("poll interrupted");
                     ctx.fail(500);
                 }
+                session.pollProcessing();
                 pollResponse.setStatusCode(200);
                 HttpServerRequest proxiedRequest = proxiedCtx.request();
                 proxiedRequest.pause();
