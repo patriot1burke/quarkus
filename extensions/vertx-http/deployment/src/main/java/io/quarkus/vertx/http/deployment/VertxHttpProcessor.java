@@ -65,6 +65,7 @@ import io.quarkus.vertx.http.runtime.VertxConfigBuilder;
 import io.quarkus.vertx.http.runtime.VertxHttpRecorder;
 import io.quarkus.vertx.http.runtime.attribute.ExchangeAttributeBuilder;
 import io.quarkus.vertx.http.runtime.cors.CORSRecorder;
+import io.quarkus.vertx.http.runtime.devmode.DevSpaceProxyRecorder;
 import io.quarkus.vertx.http.runtime.filters.Filter;
 import io.quarkus.vertx.http.runtime.filters.GracefulShutdownFilter;
 import io.quarkus.vertx.http.runtime.management.ManagementInterfaceBuildTimeConfig;
@@ -414,7 +415,8 @@ class VertxHttpProcessor {
             EventLoopCountBuildItem eventLoopCount,
             List<WebsocketSubProtocolsBuildItem> websocketSubProtocols,
             Capabilities capabilities,
-            VertxHttpRecorder recorder) throws IOException {
+            VertxHttpRecorder recorder,
+            DevSpaceProxyRecorder proxy) throws IOException {
         boolean startVirtual = requireVirtual.isPresent() || httpBuildTimeConfig.virtual;
         if (startVirtual) {
             reflectiveClass
@@ -429,6 +431,9 @@ class VertxHttpProcessor {
                 websocketSubProtocols.stream().map(bi -> bi.getWebsocketSubProtocols())
                         .collect(Collectors.toList()),
                 launchMode.isAuxiliaryApplication(), !capabilities.isPresent(Capability.VERTX_WEBSOCKETS));
+        if (httpBuildTimeConfig.devspace.uri.isPresent() && startVirtual) {
+            proxy.init(vertx.getVertx(), httpBuildTimeConfig.devspace);
+        }
     }
 
     @BuildStep

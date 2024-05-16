@@ -9,7 +9,6 @@ import org.jboss.logging.Logger;
 
 import io.netty.channel.FileRegion;
 import io.netty.handler.codec.http.*;
-import io.quarkus.devspace.client.DevProxyClient;
 import io.quarkus.devspace.server.DevProxyServer;
 import io.quarkus.netty.runtime.virtual.VirtualClientConnection;
 import io.quarkus.netty.runtime.virtual.VirtualResponseHandler;
@@ -27,13 +26,11 @@ import io.vertx.core.streams.ReadStream;
 import io.vertx.core.streams.WriteStream;
 import io.vertx.core.streams.impl.InboundBuffer;
 
-public class VirtualDevProxyClient {
-    protected static final Logger log = Logger.getLogger(DevProxyClient.class);
+public class VirtualDevpaceProxyClient {
+    protected static final Logger log = Logger.getLogger(VirtualDevpaceProxyClient.class);
 
     protected Vertx vertx;
     protected HttpClient proxyClient;
-    protected String proxyHost;
-    protected int proxyPort;
     protected String whoami;
     protected String sessionId;
     protected int numPollers = 1;
@@ -43,35 +40,11 @@ public class VirtualDevProxyClient {
     protected CountDownLatch workerShutdown;
     protected long pollTimeoutMillis = 1000;
 
-    public void setVertx(Vertx vertx) {
-        this.vertx = vertx;
-    }
-
-    public void setProxyHost(String proxyHost) {
-        this.proxyHost = proxyHost;
-    }
-
-    public void setProxyPort(int proxyPort) {
-        this.proxyPort = proxyPort;
-    }
-
-    public void setWhoami(String whoami) {
-        this.whoami = whoami;
-    }
-
-    public void setPollTimeoutMillis(long pollTimeoutMillis) {
-        this.pollTimeoutMillis = pollTimeoutMillis;
-    }
-
-    public void setNumPollers(int numPollers) {
-        this.numPollers = numPollers;
-    }
-
-    public boolean startGlobalSession() throws Exception {
+    public boolean startGlobalSession() {
         return startSession(DevProxyServer.GLOBAL_PROXY_SESSION);
     }
 
-    public boolean startSession(String sessionId) throws Exception {
+    public boolean startSession(String sessionId) {
         String uri = DevProxyServer.CLIENT_API_PATH + "/connect?who=" + whoami + "&session=" + sessionId;
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -108,7 +81,11 @@ public class VirtualDevProxyClient {
                 }
             });
         });
-        latch.await();
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         if (!success.get()) {
             forcedShutdown();
             return false;
@@ -244,7 +221,7 @@ public class VirtualDevProxyClient {
                                         log.error("Failed to push service response", exc);
                                         workerOffline();
                                     })
-                                    .onSuccess(VirtualDevProxyClient.this::handlePoll); // a successful push restarts poll
+                                    .onSuccess(VirtualDevpaceProxyClient.this::handlePoll); // a successful push restarts poll
                         });
             }
             if (msg instanceof HttpContent) {

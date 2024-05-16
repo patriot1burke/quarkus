@@ -12,6 +12,7 @@ import io.quarkus.runtime.annotations.ConvertWith;
 import io.quarkus.runtime.configuration.NormalizeRootHttpPathConverter;
 import io.quarkus.vertx.http.Compressed;
 import io.quarkus.vertx.http.Uncompressed;
+import io.quarkus.vertx.http.runtime.devmode.DevspaceConfig;
 import io.vertx.core.http.ClientAuth;
 
 @ConfigRoot(name = "http", phase = ConfigPhase.BUILD_AND_RUN_TIME_FIXED)
@@ -102,4 +103,6 @@ public class HttpBuildTimeConfig {
      */
     @ConfigItem
     public OptionalInt compressionLevel;
+
+    public DevspaceConfig devspace;
 }
