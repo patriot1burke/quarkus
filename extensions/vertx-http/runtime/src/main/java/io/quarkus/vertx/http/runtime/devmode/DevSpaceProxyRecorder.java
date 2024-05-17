@@ -14,13 +14,20 @@ import io.vertx.core.http.HttpClientOptions;
 public class DevSpaceProxyRecorder {
     private static final Logger log = Logger.getLogger(DevSpaceProxyRecorder.class);
 
-    public static VirtualDevpaceProxyClient client;
-    public static DevspaceConfig config;
+    static VirtualDevpaceProxyClient client;
+    static DevspaceConfig config;
+    static Vertx vertx;
 
     public void init(Supplier<Vertx> vertx, DevspaceConfig c) {
-        log.info("Initializing devspace");
-        URI uri = null;
         config = c;
+        DevSpaceProxyRecorder.vertx = vertx.get();
+        if (!config.delayConnect) {
+            startSession();
+        }
+    }
+
+    public static void startSession() {
+        URI uri = null;
         try {
             uri = new URI(config.uri.get());
         } catch (URISyntaxException e) {
@@ -36,21 +43,18 @@ public class DevSpaceProxyRecorder {
         }
         options.setDefaultHost(host);
         options.setDefaultPort(port);
-        client.proxyClient = vertx.get().createHttpClient(options);
-        client.vertx = vertx.get();
-        client.whoami = c.whoami.get();
-        if (!config.delayConnect) {
-            startSession();
-        } else {
-            log.info(" --- delay connect ---");
-        }
-    }
-
-    public static void startSession() {
+        client.proxyClient = vertx.createHttpClient(options);
+        client.vertx = vertx;
+        client.whoami = config.whoami.get();
         if (config.session.isPresent()) {
             client.startSession(config.session.get());
         } else {
             client.startGlobalSession();
         }
+    }
+
+    public static void closeSession() {
+        if (client != null)
+            client.shutdown();
     }
 }

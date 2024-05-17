@@ -8,7 +8,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 import io.netty.channel.FileRegion;
-import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.DefaultHttpContent;
+import io.netty.handler.codec.http.DefaultHttpRequest;
+import io.netty.handler.codec.http.HttpContent;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.LastHttpContent;
+import io.quarkus.devspace.ProxyUtils;
 import io.quarkus.devspace.server.DevProxyServer;
 import io.quarkus.netty.runtime.virtual.VirtualClientConnection;
 import io.quarkus.netty.runtime.virtual.VirtualResponseHandler;
@@ -21,7 +28,9 @@ import io.vertx.core.buffer.impl.BufferImpl;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
+import io.vertx.core.http.HttpClosedException;
 import io.vertx.core.http.HttpMethod;
+import io.vertx.core.impl.NoStackTraceTimeoutException;
 import io.vertx.core.streams.ReadStream;
 import io.vertx.core.streams.WriteStream;
 import io.vertx.core.streams.impl.InboundBuffer;
@@ -45,18 +54,22 @@ public class VirtualDevpaceProxyClient {
     }
 
     public boolean startSession(String sessionId) {
+        log.info("Start devspace session: " + sessionId);
         String uri = DevProxyServer.CLIENT_API_PATH + "/connect?who=" + whoami + "&session=" + sessionId;
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean();
         proxyClient.request(HttpMethod.POST, uri, event -> {
+            log.info("******* Connect request start");
             if (event.failed()) {
                 log.error("Could not connect to startSession", event.cause());
                 latch.countDown();
                 return;
             }
             HttpClientRequest request = event.result();
+            log.info("******* Sending Connect request");
             request.send().onComplete(event1 -> {
+                log.info("******* Connect request onComplete");
                 if (event1.failed()) {
                     log.error("Could not connect to startSession", event1.cause());
                     latch.countDown();
@@ -70,6 +83,7 @@ public class VirtualDevpaceProxyClient {
                     });
                     return;
                 }
+                log.info("******* Connect request succeeded");
                 try {
                     this.pollLink = response.getHeader(DevProxyServer.POLL_LINK);
                     for (int i = 0; i < numPollers; i++)
@@ -87,6 +101,7 @@ public class VirtualDevpaceProxyClient {
             throw new RuntimeException(e);
         }
         if (!success.get()) {
+            log.error("Failed to connect to proxy server");
             forcedShutdown();
             return false;
         }
@@ -101,7 +116,11 @@ public class VirtualDevpaceProxyClient {
     }
 
     protected void pollFailure(Throwable failure) {
-        log.error("Poll failed", failure);
+        if (failure instanceof HttpClosedException) {
+            log.warn("Client poll stopped.  Connection closed by server");
+        } else {
+            log.error("Poll failed", failure);
+        }
         workerOffline();
     }
 
@@ -111,10 +130,14 @@ public class VirtualDevpaceProxyClient {
     }
 
     private void workerOffline() {
-        workerShutdown.countDown();
+        try {
+            workerShutdown.countDown();
+        } catch (Exception ignore) {
+        }
     }
 
     protected void poll() {
+        log.info("**** poll() start");
         if (!running) {
             workerOffline();
             return;
@@ -135,13 +158,20 @@ public class VirtualDevpaceProxyClient {
 
         final String responsePath;
         InboundBuffer<Buffer> queue;
-        Buffer end = Buffer.buffer();
+        static Buffer end = Buffer.buffer();
         Handler<Void> endHandler;
+        VirtualClientConnection connection;
+
+        public void setConnection(VirtualClientConnection connection) {
+            this.connection = connection;
+        }
+
+        private void write(Buffer buf) {
+            vertx.runOnContext((v) -> queue.write(buf));
+        }
 
         public NettyResponseHandler(String responsePath, Vertx vertx) {
             this.responsePath = responsePath;
-            queue = new InboundBuffer<>(vertx.getOrCreateContext());
-            queue.pause();
         }
 
         @Override
@@ -152,12 +182,22 @@ public class VirtualDevpaceProxyClient {
 
         @Override
         public ReadStream<Buffer> handler(@Nullable Handler<Buffer> handler) {
+            if (handler == null) {
+                if (queue != null)
+                    queue.handler(null);
+                return this;
+            }
+            log.info("NettyResponseHandler: set handler");
             queue.handler((buf) -> {
+                log.info("NettyResponseHandler: handler");
                 if (buf == end) {
+                    log.info("NettyResponseHandler: calling end");
+                    connection.close();
                     if (endHandler != null) {
                         endHandler.handle(null);
                     }
                 } else {
+                    log.info("NettyResponseHandler: handler.handle(buf)");
                     handler.handle(buf);
                 }
             });
@@ -166,18 +206,22 @@ public class VirtualDevpaceProxyClient {
 
         @Override
         public ReadStream<Buffer> pause() {
+            log.info("NettyResponseHandler: pause");
             queue.pause();
             return this;
         }
 
         @Override
         public ReadStream<Buffer> resume() {
-            queue.resume();
+            log.info("NettyResponseHandler: resume");
+            boolean result = queue.resume();
+            log.info("NettyResponseHandler: resume returned: " + result);
             return this;
         }
 
         @Override
         public ReadStream<Buffer> fetch(long amount) {
+            log.info("NettyResponseHandler: fetch");
             queue.fetch(amount);
             return this;
         }
@@ -190,7 +234,10 @@ public class VirtualDevpaceProxyClient {
 
         @Override
         public void handleMessage(Object msg) {
+            log.infov("NettyResponseHandler: handleMessage({0})", msg.getClass().getName());
             if (msg instanceof HttpResponse) {
+                queue = new InboundBuffer<>(vertx.getOrCreateContext());
+                queue.pause();
                 HttpResponse res = (HttpResponse) msg;
                 proxyClient.request(HttpMethod.POST, responsePath + "?keepAlive=" + running)
                         .onFailure(exc -> {
@@ -198,6 +245,7 @@ public class VirtualDevpaceProxyClient {
                             workerOffline();
                         })
                         .onSuccess(pushRequest -> {
+                            log.info("NettyResponseHandler connect accepted for pushResponse");
                             pushRequest.setTimeout(pollTimeoutMillis);
                             pushRequest.putHeader(DevProxyServer.STATUS_CODE_HEADER, Integer.toString(res.status().code()));
 
@@ -218,21 +266,27 @@ public class VirtualDevpaceProxyClient {
                             }
                             pushRequest.send(this)
                                     .onFailure(exc -> {
-                                        log.error("Failed to push service response", exc);
-                                        workerOffline();
+                                        if (exc instanceof NoStackTraceTimeoutException) {
+                                            poll();
+                                        } else {
+                                            log.error("Failed to push service response", exc);
+                                            workerOffline();
+                                        }
                                     })
                                     .onSuccess(VirtualDevpaceProxyClient.this::handlePoll); // a successful push restarts poll
                         });
             }
             if (msg instanceof HttpContent) {
-                queue.write(BufferImpl.buffer(((HttpContent) msg).content()));
+                log.info("NettyResponseHandler: write HttpContent");
+                write(BufferImpl.buffer(((HttpContent) msg).content()));
             }
             if (msg instanceof FileRegion) {
                 log.error("FileRegion not supported yet");
                 throw new RuntimeException("FileRegion not supported yet");
             }
             if (msg instanceof LastHttpContent) {
-                queue.write(end);
+                log.info("NettyResponseHandler: write LastHttpContent");
+                write(end);
             }
         }
 
@@ -250,6 +304,7 @@ public class VirtualDevpaceProxyClient {
         }
 
         private void writeHttpContent(Buffer data) {
+            log.info("NettyWriteStream: writeHttpContent");
             // todo getByteBuf copies the underlying byteBuf
             DefaultHttpContent content = new DefaultHttpContent(data.getByteBuf());
             connection.sendMessage(content);
@@ -277,6 +332,7 @@ public class VirtualDevpaceProxyClient {
 
         @Override
         public void end(Handler<AsyncResult<Void>> handler) {
+            log.info("NettyWriteStream: end");
             connection.sendMessage(LastHttpContent.EMPTY_LAST_CONTENT);
             handler.handle(Future.succeededFuture());
         }
@@ -299,13 +355,19 @@ public class VirtualDevpaceProxyClient {
 
     protected void handlePoll(HttpClientResponse pollResponse) {
         pollResponse.pause();
-        log.debug("------ handlePoll");
+        log.info("------ handlePoll");
         int proxyStatus = pollResponse.statusCode();
         if (proxyStatus == 408) {
+            log.info("Poll timeout, redo poll");
             poll();
             return;
         } else if (proxyStatus == 204) {
             // keepAlive = false sent back
+            log.info("Keepalive = false.  Stop Polling");
+            workerOffline();
+            return;
+        } else if (proxyStatus == 404) {
+            log.info("session was closed, exiting poll");
             workerOffline();
             return;
         } else if (proxyStatus != 200) {
@@ -314,13 +376,14 @@ public class VirtualDevpaceProxyClient {
             });
             return;
         }
-
+        log.info("Unpack poll request");
         String method = pollResponse.getHeader(DevProxyServer.METHOD_HEADER);
         String uri = pollResponse.getHeader(DevProxyServer.URI_HEADER);
         String responsePath = pollResponse.getHeader(DevProxyServer.RESPONSE_LINK);
         NettyResponseHandler handler = new NettyResponseHandler(responsePath, vertx);
         VirtualClientConnection connection = VirtualClientConnection.connect(handler, VertxHttpRecorder.VIRTUAL_HTTP,
                 null);
+        handler.setConnection(connection);
 
         QuarkusHttpHeaders quarkusHeaders = new QuarkusHttpHeaders();
         // add context specific things
@@ -343,6 +406,7 @@ public class VirtualDevpaceProxyClient {
             nettyRequest.headers().add(HttpHeaderNames.HOST, "localhost");
         }
 
+        log.info("send initial nettyRequest");
         connection.sendMessage(nettyRequest);
         pollResponse.pipeTo(new NettyWriteStream(connection));
     }
@@ -363,35 +427,33 @@ public class VirtualDevpaceProxyClient {
         }
         try {
             running = false;
-            try {
-                // give time for workers to finish
-                workerShutdown.await(5, TimeUnit.SECONDS);
-            } catch (Throwable ignored) {
-
-            }
             // delete session
             CountDownLatch latch = new CountDownLatch(1);
             if (sessionId != null) {
                 String uri = DevProxyServer.CLIENT_API_PATH + "/connect?session=" + sessionId;
                 proxyClient.request(HttpMethod.DELETE, uri)
                         .onFailure(event -> {
-                            log.error("Failed to delete sesssion on shutdown", event);
+                            log.error("Failed to delete session on shutdown", event);
                             latch.countDown();
                         })
                         .onSuccess(request -> request.send()
                                 .onComplete(event -> {
                                     if (event.failed()) {
-                                        log.error("Failed to delete sesssion on shutdown", event.cause());
+                                        log.error("Failed to delete session on shutdown", event.cause());
                                     }
                                     latch.countDown();
                                 }));
 
             }
+
             try {
-                latch.await(5, TimeUnit.SECONDS);
+                latch.await(1000, TimeUnit.MILLISECONDS);
+                workerShutdown.await(pollTimeoutMillis * 2, TimeUnit.MILLISECONDS);
             } catch (InterruptedException ignored) {
             }
-            proxyClient.close();
+            log.infov("Workers still running after shutdown {0}", workerShutdown.getCount());
+            ProxyUtils.await(1000, proxyClient.close());
+
         } finally {
             shutdown = true;
         }

@@ -1,5 +1,6 @@
 package io.quarkus.devspace.server;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.jboss.logging.Logger;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.Promise;
@@ -25,8 +27,14 @@ import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.streams.Pipe;
+import io.vertx.ext.auth.User;
+import io.vertx.ext.web.FileUpload;
+import io.vertx.ext.web.ParsedHeaderValues;
+import io.vertx.ext.web.RequestBody;
+import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.Session;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.httpproxy.Body;
 import io.vertx.httpproxy.HttpProxy;
@@ -83,6 +91,11 @@ public class DevProxyServer {
                 queue.drainTo(requests);
                 requests.stream().forEach((ctx) -> proxy.proxy.handle(ctx.request()));
             }
+            try {
+                queue.put(END_SENTINEL);
+            } catch (InterruptedException e) {
+                // ignore
+            }
         }
 
         volatile long lastPoll;
@@ -131,7 +144,6 @@ public class DevProxyServer {
     }
 
     public static final String CLIENT_API_PATH = "/_dev_proxy_client_";
-    public static final String SERVICES_API_PATH = DevProxyServer.PROXY_API_PATH + "/services";
     public static final String GLOBAL_PROXY_SESSION = "_depot_global";
     public static final String SESSION_HEADER = "X-Depot-Proxy-Session";
     public static final String HEADER_FORWARD_PREFIX = "X-Depot-Fwd-";
@@ -234,7 +246,7 @@ public class DevProxyServer {
     }
 
     public void proxy(RoutingContext ctx) {
-        log.debug("*** entered proxy ***");
+        log.infov("*** entered proxy {0} {1}", ctx.request().method().toString(), ctx.request().uri());
         // Get session id from header or cookie
         String sessionId = ctx.request().getHeader(SESSION_HEADER);
         if (sessionId == null) {
@@ -245,12 +257,13 @@ public class DevProxyServer {
                 sessionId = GLOBAL_PROXY_SESSION;
             }
         }
-        log.debugv("Looking for session {0}", sessionId);
+        log.infov("Looking for session {0}", sessionId);
 
         ProxySession session = service.sessions.get(sessionId);
         if (session != null && session.running) {
             try {
-                log.debugv("Enqueued request for service {0} of proxy session {1}", service.config.getName(), sessionId);
+                log.infov("Enqueued request for service {0} of proxy session {1}", service.config.getName(), sessionId);
+                ctx.request().pause();
                 session.queue.put(ctx);
             } catch (InterruptedException e) {
                 DevProxyServer.error(ctx, 500, "Could not enqueue proxied request");
@@ -308,9 +321,12 @@ public class DevProxyServer {
         }
         ProxySession session = service.sessions.get(sessionId);
         if (session != null) {
+            log.infov("Shutdown session {0}", sessionId);
             session.shutdown();
+            ctx.response().setStatusCode(204).end();
+        } else {
+            ctx.response().setStatusCode(404).end();
         }
-        ctx.response().setStatusCode(204).end();
     }
 
     public void pushResponse(RoutingContext ctx) {
@@ -352,10 +368,10 @@ public class DevProxyServer {
         });
         sendBody(pushedResponse, proxiedResponse);
         if (keepAlive) {
-            log.debugv("Keep alive {0} {1}", service.config.getName(), sessionId);
+            log.infov("Keep alive {0} {1}", service.config.getName(), sessionId);
             executePoll(ctx, session, sessionId);
         } else {
-            log.debugv("End polling {0} {1}", service.config.getName(), sessionId);
+            log.infov("End polling {0} {1}", service.config.getName(), sessionId);
             session.pollEnded();
             ctx.response().setStatusCode(204).end();
         }
@@ -384,7 +400,7 @@ public class DevProxyServer {
 
     public void pollNext(RoutingContext ctx) {
         String sessionId = ctx.pathParam("session");
-        log.debugv("pollNext {0} {1}", service.config.getName(), sessionId);
+        log.infov("pollNext {0} {1}", service.config.getName(), sessionId);
 
         ProxySession session = service.sessions.get(sessionId);
         if (session == null) {
@@ -409,27 +425,37 @@ public class DevProxyServer {
                 ctx.request().connection().exceptionHandler((v) -> closed.set(true));
                 RoutingContext proxiedCtx = null;
                 try {
-                    log.debugv("Polling {0} {1}", service.config.getName(), sessionId);
+                    log.infov("Polling {0} {1}", service.config.getName(), sessionId);
                     proxiedCtx = session.queue.poll(POLL_TIMEOUT, TimeUnit.MILLISECONDS);
                     if (proxiedCtx != null) {
-                        log.debugv("Got request {0} {1}", service.config.getName(), sessionId);
+                        if (proxiedCtx == END_SENTINEL) {
+                            log.info("Polling exiting as session no longer exists");
+                            ctx.response().setStatusCode(404).end();
+                            return;
+                        }
+                        log.infov("Got request {0} {1}", service.config.getName(), sessionId);
                         if (closed.get()) {
-                            log.debug("Polled message but connection was closed, returning to queue");
+                            log.info("Polled message but connection was closed, returning to queue");
                             session.queue.put(proxiedCtx);
                             session.pollDisconnect();
                             return;
                         }
                     } else if (closed.get()) {
-                        log.debug("Polled message timeout, client closed");
+                        log.info("Client closed");
                         return;
                     } else {
-                        log.debug("Polled message timeout, sending 408");
-                        ctx.fail(408);
+                        log.info("Polled message timeout, sending 408");
+                        ctx.response().setStatusCode(408).end();
                         return;
                     }
                 } catch (InterruptedException e) {
-                    log.error("poll interrupted");
-                    ctx.fail(500);
+                    log.error("executePoll interrupted");
+                    ctx.response().setStatusCode(500).end();
+                    return;
+                } catch (Throwable t) {
+                    log.error("executePoll failed", t);
+                    ctx.response().setStatusCode(500).end();
+                    return;
                 }
                 session.pollProcessing();
                 pollResponse.setStatusCode(200);
@@ -452,4 +478,246 @@ public class DevProxyServer {
             }
         }, false, null);
     }
+
+    static final RoutingContext END_SENTINEL = new RoutingContext() {
+        @Override
+        public HttpServerRequest request() {
+            return null;
+        }
+
+        @Override
+        public HttpServerResponse response() {
+            return null;
+        }
+
+        @Override
+        public void next() {
+
+        }
+
+        @Override
+        public void fail(int statusCode) {
+
+        }
+
+        @Override
+        public void fail(Throwable throwable) {
+
+        }
+
+        @Override
+        public void fail(int statusCode, Throwable throwable) {
+
+        }
+
+        @Override
+        public RoutingContext put(String key, Object obj) {
+            return null;
+        }
+
+        @Override
+        public <T> T get(String key) {
+            return null;
+        }
+
+        @Override
+        public <T> T get(String key, T defaultValue) {
+            return null;
+        }
+
+        @Override
+        public <T> T remove(String key) {
+            return null;
+        }
+
+        @Override
+        public Map<String, Object> data() {
+            return Map.of();
+        }
+
+        @Override
+        public Vertx vertx() {
+            return null;
+        }
+
+        @Override
+        public String mountPoint() {
+            return "";
+        }
+
+        @Override
+        public Route currentRoute() {
+            return null;
+        }
+
+        @Override
+        public String normalizedPath() {
+            return "";
+        }
+
+        @Override
+        public Cookie getCookie(String name) {
+            return null;
+        }
+
+        @Override
+        public RoutingContext addCookie(Cookie cookie) {
+            return null;
+        }
+
+        @Override
+        public Cookie removeCookie(String name, boolean invalidate) {
+            return null;
+        }
+
+        @Override
+        public int cookieCount() {
+            return 0;
+        }
+
+        @Override
+        public Map<String, Cookie> cookieMap() {
+            return Map.of();
+        }
+
+        @Override
+        public RequestBody body() {
+            return null;
+        }
+
+        @Override
+        public List<FileUpload> fileUploads() {
+            return List.of();
+        }
+
+        @Override
+        public void cancelAndCleanupFileUploads() {
+
+        }
+
+        @Override
+        public Session session() {
+            return null;
+        }
+
+        @Override
+        public boolean isSessionAccessed() {
+            return false;
+        }
+
+        @Override
+        public User user() {
+            return null;
+        }
+
+        @Override
+        public Throwable failure() {
+            return null;
+        }
+
+        @Override
+        public int statusCode() {
+            return 0;
+        }
+
+        @Override
+        public String getAcceptableContentType() {
+            return "";
+        }
+
+        @Override
+        public ParsedHeaderValues parsedHeaders() {
+            return null;
+        }
+
+        @Override
+        public int addHeadersEndHandler(Handler<Void> handler) {
+            return 0;
+        }
+
+        @Override
+        public boolean removeHeadersEndHandler(int handlerID) {
+            return false;
+        }
+
+        @Override
+        public int addBodyEndHandler(Handler<Void> handler) {
+            return 0;
+        }
+
+        @Override
+        public boolean removeBodyEndHandler(int handlerID) {
+            return false;
+        }
+
+        @Override
+        public int addEndHandler(Handler<AsyncResult<Void>> handler) {
+            return 0;
+        }
+
+        @Override
+        public boolean removeEndHandler(int handlerID) {
+            return false;
+        }
+
+        @Override
+        public boolean failed() {
+            return false;
+        }
+
+        @Override
+        public void setBody(Buffer body) {
+
+        }
+
+        @Override
+        public void setSession(Session session) {
+
+        }
+
+        @Override
+        public void setUser(User user) {
+
+        }
+
+        @Override
+        public void clearUser() {
+
+        }
+
+        @Override
+        public void setAcceptableContentType(String contentType) {
+
+        }
+
+        @Override
+        public void reroute(HttpMethod method, String path) {
+
+        }
+
+        @Override
+        public Map<String, String> pathParams() {
+            return Map.of();
+        }
+
+        @Override
+        public String pathParam(String name) {
+            return "";
+        }
+
+        @Override
+        public MultiMap queryParams() {
+            return null;
+        }
+
+        @Override
+        public MultiMap queryParams(Charset encoding) {
+            return null;
+        }
+
+        @Override
+        public List<String> queryParam(String name) {
+            return List.of();
+        }
+    };
 }
