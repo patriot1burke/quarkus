@@ -30,9 +30,8 @@ public class DevSpaceProxyTest {
     public static final int PROXY_PORT = 9092;
 
     private static final String APP_PROPS = "" +
-            "quarkus.http.devspace.uri=http://localhost:9092\n"
-            + "quarkus.http.devspace.whoami=bill\n"
-            + "quarkus.http.devspace.delay-connect=true\n";
+            "quarkus.http.devspace=http://localhost:9092?who=bill\n"
+            + "quarkus.http.devspace-delay-connect=true\n";
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()

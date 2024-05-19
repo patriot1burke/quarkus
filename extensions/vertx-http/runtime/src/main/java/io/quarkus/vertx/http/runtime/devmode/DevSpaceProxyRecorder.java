@@ -1,7 +1,5 @@
 package io.quarkus.vertx.http.runtime.devmode;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
@@ -18,39 +16,24 @@ public class DevSpaceProxyRecorder {
     static DevspaceConfig config;
     static Vertx vertx;
 
-    public void init(Supplier<Vertx> vertx, DevspaceConfig c) {
+    public void init(Supplier<Vertx> vertx, DevspaceConfig c, boolean delayConnect) {
         config = c;
         DevSpaceProxyRecorder.vertx = vertx.get();
-        if (!config.delayConnect) {
+        if (!delayConnect) {
             startSession();
         }
     }
 
     public static void startSession() {
-        URI uri = null;
-        try {
-            uri = new URI(config.uri.get());
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
-        }
         client = new VirtualDevpaceProxyClient();
         HttpClientOptions options = new HttpClientOptions();
-        String host = uri.getHost();
-        int port = uri.getPort();
-        boolean ssl = uri.getScheme().equalsIgnoreCase("https");
-        if (ssl) {
-            options.setSsl(true).setTrustAll(true);
-        }
-        options.setDefaultHost(host);
-        options.setDefaultPort(port);
+        options.setDefaultHost(config.host);
+        options.setDefaultPort(config.port);
         client.proxyClient = vertx.createHttpClient(options);
         client.vertx = vertx;
-        client.whoami = config.whoami.get();
-        if (config.session.isPresent()) {
-            client.startSession(config.session.get());
-        } else {
-            client.startGlobalSession();
-        }
+        client.whoami = config.who;
+        // todo add session support
+        client.startGlobalSession();
     }
 
     public static void closeSession() {

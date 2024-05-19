@@ -14,10 +14,7 @@ public class DevSpaceProcessor {
     @BuildStep(onlyIfNot = IsNormal.class) // This is required for testing so run it even if devservices.enabled=false
     public RequireVirtualHttpBuildItem requestVirtualHttp(HttpBuildTimeConfig config) throws BuildException {
 
-        if (config.devspace.uri.isPresent()) {
-            if (!config.devspace.whoami.isPresent()) {
-                throw new BuildException("devspace.whomai must be set");
-            }
+        if (config.devspace.isPresent()) {
             return RequireVirtualHttpBuildItem.ALWAYS_VIRTUAL;
         } else {
             return null;

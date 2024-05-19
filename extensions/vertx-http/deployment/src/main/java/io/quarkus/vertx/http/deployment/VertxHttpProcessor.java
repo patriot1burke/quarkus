@@ -6,9 +6,13 @@ import static io.quarkus.vertx.http.deployment.RouteBuildItem.RouteType.FRAMEWOR
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -66,6 +70,7 @@ import io.quarkus.vertx.http.runtime.VertxHttpRecorder;
 import io.quarkus.vertx.http.runtime.attribute.ExchangeAttributeBuilder;
 import io.quarkus.vertx.http.runtime.cors.CORSRecorder;
 import io.quarkus.vertx.http.runtime.devmode.DevSpaceProxyRecorder;
+import io.quarkus.vertx.http.runtime.devmode.DevspaceConfig;
 import io.quarkus.vertx.http.runtime.filters.Filter;
 import io.quarkus.vertx.http.runtime.filters.GracefulShutdownFilter;
 import io.quarkus.vertx.http.runtime.management.ManagementInterfaceBuildTimeConfig;
@@ -431,9 +436,52 @@ class VertxHttpProcessor {
                 websocketSubProtocols.stream().map(bi -> bi.getWebsocketSubProtocols())
                         .collect(Collectors.toList()),
                 launchMode.isAuxiliaryApplication(), !capabilities.isPresent(Capability.VERTX_WEBSOCKETS));
-        if (httpBuildTimeConfig.devspace.uri.isPresent() && startVirtual) {
-            proxy.init(vertx.getVertx(), httpBuildTimeConfig.devspace);
+        if (httpBuildTimeConfig.devspace.isPresent() && startVirtual) {
+            URI uri = null;
+            try {
+                uri = new URI(httpBuildTimeConfig.devspace.get());
+            } catch (URISyntaxException e) {
+                throw new RuntimeException("Bad URI value for quarkus.http.devspace");
+            }
+            DevspaceConfig devspace = new DevspaceConfig();
+            devspace.host = uri.getHost();
+            devspace.ssl = uri.getScheme().equalsIgnoreCase("https");
+            devspace.port = uri.getPort() == -1 ? (devspace.ssl ? 443 : 80) : uri.getPort();
+            Map<String, String> params = splitQuery(uri);
+            if (!params.containsKey("who")) {
+                throw new RuntimeException("quarkus.http.devspace is missing who parameter");
+            }
+            devspace.who = params.get("who");
+            boolean isSession = false;
+            if (params.containsKey("header")) {
+                devspace.header = params.get("header");
+                isSession = true;
+            }
+            if (params.containsKey("json")) {
+                devspace.jsonPath = params.get("json");
+                isSession = true;
+            }
+            if (params.containsKey("query")) {
+                devspace.query = params.get("query");
+                isSession = true;
+            }
+            devspace.session = params.get("session");
+            if (isSession && devspace.session == null) {
+                throw new RuntimeException("quarkus.http.devspace uri is missing session parameter");
+            }
+            proxy.init(vertx.getVertx(), devspace, httpBuildTimeConfig.devspaceDelayConnect);
         }
+    }
+
+    public static Map<String, String> splitQuery(URI uri) {
+        Map<String, String> query_pairs = new LinkedHashMap<String, String>();
+        String query = uri.getQuery();
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+            int idx = pair.indexOf("=");
+            query_pairs.put(pair.substring(0, idx), pair.substring(idx + 1));
+        }
+        return query_pairs;
     }
 
     @BuildStep
