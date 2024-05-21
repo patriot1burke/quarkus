@@ -48,6 +48,10 @@ public class DevProxyServer {
         final String sessionId;
         final String who;
 
+        volatile boolean running = true;
+        volatile long lastPoll;
+        AtomicLong requestId = new AtomicLong(System.currentTimeMillis());
+
         ProxySession(ServiceProxy proxy, String sessionId, String who) {
             timerId = vertx.setPeriodic(POLL_TIMEOUT, this::timerCallback);
             this.proxy = proxy;
@@ -62,13 +66,11 @@ public class DevProxyServer {
         private void checkIdle() {
             if (!running)
                 return;
-            if (System.currentTimeMillis() - lastPoll > POLL_TIMEOUT && numPollers == 0) {
+            if (System.currentTimeMillis() - lastPoll > POLL_TIMEOUT) {
+                log.warnv("Shutting down session {0} due to timeout.", sessionId);
                 shutdown();
             }
         }
-
-        volatile boolean running = true;
-        AtomicLong requestId = new AtomicLong(System.currentTimeMillis());
 
         String queueResponse(RoutingContext ctx) {
             String requestId = Long.toString(this.requestId.incrementAndGet());
@@ -98,12 +100,8 @@ public class DevProxyServer {
             }
         }
 
-        volatile long lastPoll;
-        volatile int numPollers;
-
         void pollStarted() {
             lastPoll = System.currentTimeMillis();
-            numPollers++;
         }
 
         void pollProcessing() {
@@ -111,12 +109,10 @@ public class DevProxyServer {
         }
 
         void pollEnded() {
-            numPollers--;
             lastPoll = System.currentTimeMillis();
         }
 
         synchronized void pollDisconnect() {
-            numPollers--;
             if (!running) {
                 return;
             }
@@ -155,7 +151,7 @@ public class DevProxyServer {
     public static final String POLL_LINK = "X-Depot-Poll-Path";
     public static final String PROXY_API_PATH = "/_dev_proxy_api_";
 
-    protected long POLL_TIMEOUT = 1000;
+    protected long POLL_TIMEOUT = 5000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
     protected ServiceProxy service;
     protected Vertx vertx;
@@ -369,6 +365,7 @@ public class DevProxyServer {
         sendBody(pushedResponse, proxiedResponse);
         if (keepAlive) {
             log.infov("Keep alive {0} {1}", service.config.getName(), sessionId);
+            session.pollProcessing();
             executePoll(ctx, session, sessionId);
         } else {
             log.infov("End polling {0} {1}", service.config.getName(), sessionId);

@@ -461,15 +461,11 @@ class VertxHttpProcessor {
                 devspace.jsonPath = params.get("json");
                 isSession = true;
             }
-            if (params.containsKey("query")) {
-                devspace.query = params.get("query");
-                isSession = true;
-            }
             devspace.session = params.get("session");
             if (isSession && devspace.session == null) {
                 throw new RuntimeException("quarkus.http.devspace uri is missing session parameter");
             }
-            proxy.init(vertx.getVertx(), devspace, httpBuildTimeConfig.devspaceDelayConnect);
+            proxy.init(vertx.getVertx(), shutdown, devspace, httpBuildTimeConfig.devspaceDelayConnect);
         }
     }
 

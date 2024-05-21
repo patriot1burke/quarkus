@@ -10,7 +10,6 @@ public class DevspaceConfig {
     public boolean ssl;
     public String header;
     public String jsonPath;
-    public String query;
     public String session;
     public boolean delayConnect;
 }

@@ -4,6 +4,7 @@ import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
 
+import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClientOptions;
@@ -16,11 +17,14 @@ public class DevSpaceProxyRecorder {
     static DevspaceConfig config;
     static Vertx vertx;
 
-    public void init(Supplier<Vertx> vertx, DevspaceConfig c, boolean delayConnect) {
+    public void init(Supplier<Vertx> vertx, ShutdownContext shutdown, DevspaceConfig c, boolean delayConnect) {
         config = c;
         DevSpaceProxyRecorder.vertx = vertx.get();
         if (!delayConnect) {
             startSession();
+            shutdown.addShutdownTask(() -> {
+                closeSession();
+            });
         }
     }
 
@@ -29,6 +33,9 @@ public class DevSpaceProxyRecorder {
         HttpClientOptions options = new HttpClientOptions();
         options.setDefaultHost(config.host);
         options.setDefaultPort(config.port);
+        if (config.ssl) {
+            options.setSsl(true).setTrustAll(true);
+        }
         client.proxyClient = vertx.createHttpClient(options);
         client.vertx = vertx;
         client.whoami = config.who;

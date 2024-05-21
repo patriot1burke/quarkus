@@ -3,6 +3,7 @@ package io.quarkus.vertx.http.runtime.devmode;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jboss.logging.Logger;
@@ -30,7 +31,6 @@ import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
 import io.vertx.core.http.HttpClosedException;
 import io.vertx.core.http.HttpMethod;
-import io.vertx.core.impl.NoStackTraceTimeoutException;
 import io.vertx.core.streams.ReadStream;
 import io.vertx.core.streams.WriteStream;
 import io.vertx.core.streams.impl.InboundBuffer;
@@ -47,7 +47,7 @@ public class VirtualDevpaceProxyClient {
     protected volatile boolean shutdown = false;
     protected String pollLink;
     protected CountDownLatch workerShutdown;
-    protected long pollTimeoutMillis = 1000;
+    protected long pollTimeoutMillis = 5000;
 
     public boolean startGlobalSession() {
         return startSession(DevProxyServer.GLOBAL_PROXY_SESSION);
@@ -118,9 +118,18 @@ public class VirtualDevpaceProxyClient {
     protected void pollFailure(Throwable failure) {
         if (failure instanceof HttpClosedException) {
             log.warn("Client poll stopped.  Connection closed by server");
+        } else if (failure instanceof TimeoutException) {
+            log.warn("Poll timeout");
+            poll();
+            return;
         } else {
             log.error("Poll failed", failure);
         }
+        workerOffline();
+    }
+
+    protected void pollConnectFailure(Throwable failure) {
+        log.error("Connect Poll failed", failure);
         workerOffline();
     }
 
@@ -147,11 +156,10 @@ public class VirtualDevpaceProxyClient {
                     request.setTimeout(pollTimeoutMillis)
                             .send()
                             .onSuccess(this::handlePoll)
-                            //.onSuccess(this::handlePollWaitBody)
                             .onFailure(this::pollFailure);
 
                 })
-                .onFailure(this::pollFailure);
+                .onFailure(this::pollConnectFailure);
     }
 
     private class NettyResponseHandler implements VirtualResponseHandler, ReadStream<Buffer> {
@@ -266,7 +274,7 @@ public class VirtualDevpaceProxyClient {
                             }
                             pushRequest.send(this)
                                     .onFailure(exc -> {
-                                        if (exc instanceof NoStackTraceTimeoutException) {
+                                        if (exc instanceof TimeoutException) {
                                             poll();
                                         } else {
                                             log.error("Failed to push service response", exc);
