@@ -105,6 +105,7 @@ public class DevProxyServer {
         volatile long lastPoll;
         AtomicLong requestId = new AtomicLong(System.currentTimeMillis());
 
+
         ProxySession(ServiceProxy proxy, String sessionId, String who) {
             timerId = vertx.setPeriodic(POLL_TIMEOUT, this::timerCallback);
             this.proxy = proxy;
@@ -223,15 +224,15 @@ public class DevProxyServer {
     }
 
     public static final String CLIENT_API_PATH = "/_dev_proxy_client_";
-    public static final String GLOBAL_PROXY_SESSION = "_depot_global";
-    public static final String SESSION_HEADER = "X-Depot-Proxy-Session";
-    public static final String HEADER_FORWARD_PREFIX = "X-Depot-Fwd-";
-    public static final String STATUS_CODE_HEADER = "X-Depot-Status-Code";
-    public static final String METHOD_HEADER = "X-Depot-Method";
-    public static final String URI_HEADER = "X-Depot-Uri";
-    public static final String REQUEST_ID_HEADER = "X-Depot-Request-Id";
-    public static final String RESPONSE_LINK = "X-Depot-Response-Path";
-    public static final String POLL_LINK = "X-Depot-Poll-Path";
+    public static final String GLOBAL_PROXY_SESSION = "_devspace_global";
+    public static final String SESSION_HEADER = "X-DevSpace-Session";
+    public static final String HEADER_FORWARD_PREFIX = "X-DevSpace-Fwd-";
+    public static final String STATUS_CODE_HEADER = "X-DevSpace-Status-Code";
+    public static final String METHOD_HEADER = "X-DevSpace-Method";
+    public static final String URI_HEADER = "X-DevSpace-Uri";
+    public static final String REQUEST_ID_HEADER = "X-DevSpace-Request-Id";
+    public static final String RESPONSE_LINK = "X-DevSpace-Response-Path";
+    public static final String POLL_LINK = "X-DevSpace-Poll-Path";
 
     protected long POLL_TIMEOUT = 5000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
