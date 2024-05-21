@@ -1,23 +1,17 @@
 package io.quarkus.devspace.server;
 
-import java.nio.charset.Charset;
-import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.jboss.logging.Logger;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.Cookie;
@@ -27,26 +21,85 @@ import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.streams.Pipe;
-import io.vertx.ext.auth.User;
-import io.vertx.ext.web.FileUpload;
-import io.vertx.ext.web.ParsedHeaderValues;
-import io.vertx.ext.web.RequestBody;
-import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
-import io.vertx.ext.web.Session;
-import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.httpproxy.Body;
 import io.vertx.httpproxy.HttpProxy;
 
 public class DevProxyServer {
+    public class Poller {
+        final ProxySession session;
+        final RoutingContext pollerCtx;
+        final AtomicBoolean closed = new AtomicBoolean();
+        boolean enqueued;
+
+        public Poller(ProxySession session, RoutingContext pollerCtx) {
+            this.session = session;
+            this.pollerCtx = pollerCtx;
+        }
+
+        private void enqueuePoller() {
+            HttpServerResponse pollResponse = pollerCtx.response();
+            pollResponse.closeHandler(v1 -> connectionFailure());
+            pollResponse.exceptionHandler(v1 -> connectionFailure());
+            pollerCtx.request().connection().closeHandler(v -> connectionFailure());
+            pollerCtx.request().connection().exceptionHandler(v -> connectionFailure());
+            enqueued = true;
+        }
+
+        private void connectionFailure() {
+            closed.set(true);
+            if (!enqueued)
+                return;
+            synchronized (session.pollLock) {
+                session.awaitingPollers.remove(this);
+            }
+            session.pollDisconnect();
+        }
+
+        public boolean isClosed() {
+            return closed.get();
+        }
+
+        public void closeSession() {
+            if (closed.get())
+                return;
+            pollerCtx.response().setStatusCode(404).end();
+        }
+
+        public void forwardRequestToPollerClient(RoutingContext proxiedCtx) {
+            log.infov("Forward request to poll client {0}", session.sessionId);
+            enqueued = false;
+            HttpServerRequest proxiedRequest = proxiedCtx.request();
+            HttpServerResponse pollResponse = pollerCtx.response();
+            session.pollProcessing();
+            pollResponse.setStatusCode(200);
+            proxiedRequest.headers().forEach((key, val) -> {
+                if (key.equalsIgnoreCase("Content-Length")) {
+                    return;
+                }
+                pollResponse.headers().add(HEADER_FORWARD_PREFIX + key, val);
+            });
+            String requestId = session.queueResponse(proxiedCtx);
+            pollResponse.putHeader(REQUEST_ID_HEADER, requestId);
+            String responsePath = CLIENT_API_PATH + "/push/response/session/" + session.sessionId + "/request/"
+                    + requestId;
+            pollResponse.putHeader(RESPONSE_LINK, responsePath);
+            pollResponse.putHeader(METHOD_HEADER, proxiedRequest.method().toString());
+            pollResponse.putHeader(URI_HEADER, proxiedRequest.uri());
+            sendBody(proxiedRequest, pollResponse);
+        }
+    }
+
     public class ProxySession {
-        final BlockingQueue<RoutingContext> queue = new LinkedBlockingQueue<>();
         final ConcurrentHashMap<String, RoutingContext> responsePending = new ConcurrentHashMap<>();
         final ServiceProxy proxy;
         final long timerId;
         final String sessionId;
         final String who;
+        final Deque<RoutingContext> awaiting = new LinkedList<>();
+        final Deque<Poller> awaitingPollers = new LinkedList<>();
+        final Object pollLock = new Object();
 
         volatile boolean running = true;
         volatile long lastPoll;
@@ -63,7 +116,7 @@ public class DevProxyServer {
             checkIdle();
         }
 
-        private void checkIdle() {
+        void checkIdle() {
             if (!running)
                 return;
             if (System.currentTimeMillis() - lastPoll > POLL_TIMEOUT) {
@@ -82,21 +135,23 @@ public class DevProxyServer {
             return responsePending.remove(requestId);
         }
 
-        synchronized void shutdown() {
+        void shutdown() {
             if (!running)
                 return;
             running = false;
             proxy.sessions.remove(this.sessionId);
             vertx.cancelTimer(timerId);
-            while (!queue.isEmpty()) {
-                List<RoutingContext> requests = new ArrayList<>();
-                queue.drainTo(requests);
-                requests.stream().forEach((ctx) -> proxy.proxy.handle(ctx.request()));
-            }
-            try {
-                queue.put(END_SENTINEL);
-            } catch (InterruptedException e) {
-                // ignore
+
+            synchronized (pollLock) {
+                while (!awaiting.isEmpty()) {
+                    RoutingContext proxiedCtx = awaiting.poll();
+                    if (proxiedCtx != null) {
+                        proxy.proxy.handle(proxiedCtx.request());
+                    }
+                }
+                awaitingPollers.stream().forEach((poller) -> {
+                    poller.closeSession();
+                });
             }
         }
 
@@ -112,13 +167,41 @@ public class DevProxyServer {
             lastPoll = System.currentTimeMillis();
         }
 
-        synchronized void pollDisconnect() {
+        void pollDisconnect() {
             if (!running) {
                 return;
             }
             checkIdle();
         }
 
+        public void poll(RoutingContext pollingCtx) {
+            this.pollStarted();
+            RoutingContext proxiedCtx = null;
+            Poller poller = new Poller(this, pollingCtx);
+            synchronized (pollLock) {
+                proxiedCtx = awaiting.poll();
+                if (proxiedCtx == null) {
+                    poller.enqueuePoller();
+                    awaitingPollers.add(poller);
+                    return;
+                }
+            }
+            poller.forwardRequestToPollerClient(proxiedCtx);
+        }
+
+        public void handleProxiedRequest(RoutingContext ctx) {
+            ctx.request().pause();
+            Poller poller = null;
+            synchronized (pollLock) {
+                poller = awaitingPollers.poll();
+                if (poller == null) {
+                    awaiting.add(ctx);
+                    return;
+                }
+                poller.enqueued = false;
+            }
+            poller.forwardRequestToPollerClient(ctx);
+        }
     }
 
     public class ServiceProxy {
@@ -149,7 +232,6 @@ public class DevProxyServer {
     public static final String REQUEST_ID_HEADER = "X-Depot-Request-Id";
     public static final String RESPONSE_LINK = "X-Depot-Response-Path";
     public static final String POLL_LINK = "X-Depot-Poll-Path";
-    public static final String PROXY_API_PATH = "/_dev_proxy_api_";
 
     protected long POLL_TIMEOUT = 5000;
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
@@ -173,7 +255,6 @@ public class DevProxyServer {
             }
             context.next();
         });
-        router.route(DevProxyServer.PROXY_API_PATH + "/*").handler(BodyHandler.create());
         // CLIENT API
         router.route(CLIENT_API_PATH + "/poll/session/:session").method(HttpMethod.POST).handler(this::pollNext);
         router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.POST).handler(this::clientConnect);
@@ -257,15 +338,7 @@ public class DevProxyServer {
 
         ProxySession session = service.sessions.get(sessionId);
         if (session != null && session.running) {
-            try {
-                log.infov("Enqueued request for service {0} of proxy session {1}", service.config.getName(), sessionId);
-                ctx.request().pause();
-                session.queue.put(ctx);
-            } catch (InterruptedException e) {
-                DevProxyServer.error(ctx, 500, "Could not enqueue proxied request");
-                log.error("Could not enqueue proxied request. Interrupted");
-                return;
-            }
+            session.handleProxiedRequest(ctx);
         } else {
             service.proxy.handle(ctx.request());
         }
@@ -366,7 +439,7 @@ public class DevProxyServer {
         if (keepAlive) {
             log.infov("Keep alive {0} {1}", service.config.getName(), sessionId);
             session.pollProcessing();
-            executePoll(ctx, session, sessionId);
+            session.poll(ctx);
         } else {
             log.infov("End polling {0} {1}", service.config.getName(), sessionId);
             session.pollEnded();
@@ -405,316 +478,6 @@ public class DevProxyServer {
             DevProxyServer.error(ctx, 404, "Session not found for service " + service.config.getName());
             return;
         }
-        session.pollStarted();
-        executePoll(ctx, session, sessionId);
+        session.poll(ctx);
     }
-
-    private void executePoll(RoutingContext ctx, ProxySession session, String sessionId) {
-        vertx.executeBlocking(new Handler<>() {
-
-            @Override
-            public void handle(Promise<Object> event) {
-                final AtomicBoolean closed = new AtomicBoolean(false);
-                HttpServerResponse pollResponse = ctx.response();
-                pollResponse.closeHandler((v) -> closed.set(true));
-                pollResponse.exceptionHandler((v) -> closed.set(true));
-                ctx.request().connection().closeHandler((v) -> closed.set(true));
-                ctx.request().connection().exceptionHandler((v) -> closed.set(true));
-                RoutingContext proxiedCtx = null;
-                try {
-                    log.infov("Polling {0} {1}", service.config.getName(), sessionId);
-                    proxiedCtx = session.queue.poll(POLL_TIMEOUT, TimeUnit.MILLISECONDS);
-                    if (proxiedCtx != null) {
-                        if (proxiedCtx == END_SENTINEL) {
-                            log.info("Polling exiting as session no longer exists");
-                            ctx.response().setStatusCode(404).end();
-                            return;
-                        }
-                        log.infov("Got request {0} {1}", service.config.getName(), sessionId);
-                        if (closed.get()) {
-                            log.info("Polled message but connection was closed, returning to queue");
-                            session.queue.put(proxiedCtx);
-                            session.pollDisconnect();
-                            return;
-                        }
-                    } else if (closed.get()) {
-                        log.info("Client closed");
-                        return;
-                    } else {
-                        log.info("Polled message timeout, sending 408");
-                        ctx.response().setStatusCode(408).end();
-                        return;
-                    }
-                } catch (InterruptedException e) {
-                    log.error("executePoll interrupted");
-                    ctx.response().setStatusCode(500).end();
-                    return;
-                } catch (Throwable t) {
-                    log.error("executePoll failed", t);
-                    ctx.response().setStatusCode(500).end();
-                    return;
-                }
-                session.pollProcessing();
-                pollResponse.setStatusCode(200);
-                HttpServerRequest proxiedRequest = proxiedCtx.request();
-                proxiedRequest.pause();
-                proxiedRequest.headers().forEach((key, val) -> {
-                    if (key.equalsIgnoreCase("Content-Length")) {
-                        return;
-                    }
-                    pollResponse.headers().add(HEADER_FORWARD_PREFIX + key, val);
-                });
-                String requestId = session.queueResponse(proxiedCtx);
-                pollResponse.putHeader(REQUEST_ID_HEADER, requestId);
-                String responsePath = CLIENT_API_PATH + "/push/response/session/" + sessionId + "/request/"
-                        + requestId;
-                pollResponse.putHeader(RESPONSE_LINK, responsePath);
-                pollResponse.putHeader(METHOD_HEADER, proxiedRequest.method().toString());
-                pollResponse.putHeader(URI_HEADER, proxiedRequest.uri());
-                sendBody(proxiedRequest, pollResponse);
-            }
-        }, false, null);
-    }
-
-    static final RoutingContext END_SENTINEL = new RoutingContext() {
-        @Override
-        public HttpServerRequest request() {
-            return null;
-        }
-
-        @Override
-        public HttpServerResponse response() {
-            return null;
-        }
-
-        @Override
-        public void next() {
-
-        }
-
-        @Override
-        public void fail(int statusCode) {
-
-        }
-
-        @Override
-        public void fail(Throwable throwable) {
-
-        }
-
-        @Override
-        public void fail(int statusCode, Throwable throwable) {
-
-        }
-
-        @Override
-        public RoutingContext put(String key, Object obj) {
-            return null;
-        }
-
-        @Override
-        public <T> T get(String key) {
-            return null;
-        }
-
-        @Override
-        public <T> T get(String key, T defaultValue) {
-            return null;
-        }
-
-        @Override
-        public <T> T remove(String key) {
-            return null;
-        }
-
-        @Override
-        public Map<String, Object> data() {
-            return Map.of();
-        }
-
-        @Override
-        public Vertx vertx() {
-            return null;
-        }
-
-        @Override
-        public String mountPoint() {
-            return "";
-        }
-
-        @Override
-        public Route currentRoute() {
-            return null;
-        }
-
-        @Override
-        public String normalizedPath() {
-            return "";
-        }
-
-        @Override
-        public Cookie getCookie(String name) {
-            return null;
-        }
-
-        @Override
-        public RoutingContext addCookie(Cookie cookie) {
-            return null;
-        }
-
-        @Override
-        public Cookie removeCookie(String name, boolean invalidate) {
-            return null;
-        }
-
-        @Override
-        public int cookieCount() {
-            return 0;
-        }
-
-        @Override
-        public Map<String, Cookie> cookieMap() {
-            return Map.of();
-        }
-
-        @Override
-        public RequestBody body() {
-            return null;
-        }
-
-        @Override
-        public List<FileUpload> fileUploads() {
-            return List.of();
-        }
-
-        @Override
-        public void cancelAndCleanupFileUploads() {
-
-        }
-
-        @Override
-        public Session session() {
-            return null;
-        }
-
-        @Override
-        public boolean isSessionAccessed() {
-            return false;
-        }
-
-        @Override
-        public User user() {
-            return null;
-        }
-
-        @Override
-        public Throwable failure() {
-            return null;
-        }
-
-        @Override
-        public int statusCode() {
-            return 0;
-        }
-
-        @Override
-        public String getAcceptableContentType() {
-            return "";
-        }
-
-        @Override
-        public ParsedHeaderValues parsedHeaders() {
-            return null;
-        }
-
-        @Override
-        public int addHeadersEndHandler(Handler<Void> handler) {
-            return 0;
-        }
-
-        @Override
-        public boolean removeHeadersEndHandler(int handlerID) {
-            return false;
-        }
-
-        @Override
-        public int addBodyEndHandler(Handler<Void> handler) {
-            return 0;
-        }
-
-        @Override
-        public boolean removeBodyEndHandler(int handlerID) {
-            return false;
-        }
-
-        @Override
-        public int addEndHandler(Handler<AsyncResult<Void>> handler) {
-            return 0;
-        }
-
-        @Override
-        public boolean removeEndHandler(int handlerID) {
-            return false;
-        }
-
-        @Override
-        public boolean failed() {
-            return false;
-        }
-
-        @Override
-        public void setBody(Buffer body) {
-
-        }
-
-        @Override
-        public void setSession(Session session) {
-
-        }
-
-        @Override
-        public void setUser(User user) {
-
-        }
-
-        @Override
-        public void clearUser() {
-
-        }
-
-        @Override
-        public void setAcceptableContentType(String contentType) {
-
-        }
-
-        @Override
-        public void reroute(HttpMethod method, String path) {
-
-        }
-
-        @Override
-        public Map<String, String> pathParams() {
-            return Map.of();
-        }
-
-        @Override
-        public String pathParam(String name) {
-            return "";
-        }
-
-        @Override
-        public MultiMap queryParams() {
-            return null;
-        }
-
-        @Override
-        public MultiMap queryParams(Charset encoding) {
-            return null;
-        }
-
-        @Override
-        public List<String> queryParam(String name) {
-            return List.of();
-        }
-    };
 }
