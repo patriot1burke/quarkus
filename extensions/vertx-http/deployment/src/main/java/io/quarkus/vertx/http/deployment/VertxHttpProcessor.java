@@ -10,9 +10,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -441,43 +439,47 @@ class VertxHttpProcessor {
             try {
                 uri = new URI(httpBuildTimeConfig.devspace.get());
             } catch (URISyntaxException e) {
-                throw new RuntimeException("Bad URI value for quarkus.http.devspace");
+                throw new RuntimeException("Bad URI value for quarkus.http.devspace: '" + httpBuildTimeConfig.devspace.get());
             }
             DevspaceConfig devspace = new DevspaceConfig();
             devspace.host = uri.getHost();
             devspace.ssl = uri.getScheme().equalsIgnoreCase("https");
             devspace.port = uri.getPort() == -1 ? (devspace.ssl ? 443 : 80) : uri.getPort();
-            Map<String, String> params = splitQuery(uri);
-            if (!params.containsKey("who")) {
+
+            boolean needSession = false;
+            for (String pair : uri.getQuery().split("&")) {
+                int idx = pair.indexOf("=");
+                String key = pair.substring(0, idx);
+                String value = pair.substring(idx + 1);
+                if ("session".equals(key)) {
+                    devspace.session = value;
+                } else if ("who".equals(key)) {
+                    devspace.who = value;
+                } else if ("query".equals(key)) {
+                    if (devspace.queries == null)
+                        devspace.queries = new ArrayList<>();
+                    devspace.queries.add(value);
+                    needSession = true;
+                } else if ("path".equals(key)) {
+                    if (devspace.paths == null)
+                        devspace.paths = new ArrayList<>();
+                    devspace.paths.add(value);
+                    needSession = true;
+                } else if ("header".equals(key)) {
+                    if (devspace.headers == null)
+                        devspace.headers = new ArrayList<>();
+                    devspace.headers.add(value);
+                    needSession = true;
+                }
+            }
+            if (devspace.who == null) {
                 throw new RuntimeException("quarkus.http.devspace is missing who parameter");
             }
-            devspace.who = params.get("who");
-            boolean isSession = false;
-            if (params.containsKey("header")) {
-                devspace.header = params.get("header");
-                isSession = true;
-            }
-            if (params.containsKey("json")) {
-                devspace.jsonPath = params.get("json");
-                isSession = true;
-            }
-            devspace.session = params.get("session");
-            if (isSession && devspace.session == null) {
+            if (needSession && devspace.session == null) {
                 throw new RuntimeException("quarkus.http.devspace uri is missing session parameter");
             }
             proxy.init(vertx.getVertx(), shutdown, devspace, httpBuildTimeConfig.devspaceDelayConnect);
         }
-    }
-
-    public static Map<String, String> splitQuery(URI uri) {
-        Map<String, String> query_pairs = new LinkedHashMap<String, String>();
-        String query = uri.getQuery();
-        String[] pairs = query.split("&");
-        for (String pair : pairs) {
-            int idx = pair.indexOf("=");
-            query_pairs.put(pair.substring(0, idx), pair.substring(idx + 1));
-        }
-        return query_pairs;
     }
 
     @BuildStep

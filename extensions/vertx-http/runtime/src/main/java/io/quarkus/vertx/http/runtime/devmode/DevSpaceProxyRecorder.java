@@ -14,14 +14,14 @@ public class DevSpaceProxyRecorder {
     private static final Logger log = Logger.getLogger(DevSpaceProxyRecorder.class);
 
     static VirtualDevpaceProxyClient client;
-    static DevspaceConfig config;
+    public static DevspaceConfig config;
     static Vertx vertx;
 
     public void init(Supplier<Vertx> vertx, ShutdownContext shutdown, DevspaceConfig c, boolean delayConnect) {
         config = c;
         DevSpaceProxyRecorder.vertx = vertx.get();
         if (!delayConnect) {
-            startSession();
+            startSession(c);
             shutdown.addShutdownTask(() -> {
                 closeSession();
             });
@@ -29,6 +29,10 @@ public class DevSpaceProxyRecorder {
     }
 
     public static void startSession() {
+        startSession(config);
+    }
+
+    public static void startSession(DevspaceConfig config) {
         client = new VirtualDevpaceProxyClient();
         HttpClientOptions options = new HttpClientOptions();
         options.setDefaultHost(config.host);
@@ -39,12 +43,12 @@ public class DevSpaceProxyRecorder {
         client.proxyClient = vertx.createHttpClient(options);
         client.vertx = vertx;
         client.whoami = config.who;
-        // todo add session support
-        client.startGlobalSession();
+        client.start(config.session, config.queries, config.paths, config.headers);
     }
 
     public static void closeSession() {
         if (client != null)
             client.shutdown();
+        client = null;
     }
 }

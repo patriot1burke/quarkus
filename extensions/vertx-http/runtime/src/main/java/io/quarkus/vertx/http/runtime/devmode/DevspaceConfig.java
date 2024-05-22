@@ -1,5 +1,7 @@
 package io.quarkus.vertx.http.runtime.devmode;
 
+import java.util.List;
+
 /**
  * Populated from quarkus.http.devspace
  */
@@ -8,8 +10,9 @@ public class DevspaceConfig {
     public String host;
     public int port;
     public boolean ssl;
-    public String header;
-    public String jsonPath;
+    public List<String> headers;
+    public List<String> paths;
+    public List<String> queries;
     public String session;
     public boolean delayConnect;
 }

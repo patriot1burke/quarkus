@@ -51,13 +51,27 @@ public class VirtualDevpaceProxyClient {
     protected long pollTimeoutMillis = 5000;
     protected String uri;
 
-    public boolean startGlobalSession() {
-        return startSession(DevProxyServer.GLOBAL_PROXY_SESSION);
+    public boolean start() {
+        return start(null, null, null, null);
     }
 
-    public boolean startSession(String sessionId) {
+    public boolean start(String sessionId, List<String> queries, List<String> paths, List<String> headers) {
+        if (sessionId == null)
+            sessionId = DevProxyServer.GLOBAL_PROXY_SESSION;
         log.info("Start devspace session: " + sessionId);
         this.uri = DevProxyServer.CLIENT_API_PATH + "/connect?who=" + whoami + "&session=" + sessionId;
+        if (queries != null) {
+            for (String query : queries)
+                this.uri = this.uri + "&query=" + query;
+        }
+        if (headers != null) {
+            for (String header : headers)
+                this.uri = this.uri + "&header=" + header;
+        }
+        if (paths != null) {
+            for (String path : paths)
+                this.uri = this.uri + "&header=" + path;
+        }
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean();

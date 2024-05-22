@@ -117,9 +117,10 @@ public class HttpBuildTimeConfig {
      * If you want to have a specific directed session, then use these parameters to define
      * the session within the devspace config uri:
      *
-     * header - http header or cookie name identifies the session id
+     * header - http header or cookie name that identifies the session id
      * query - query parameter name that identifies session id
-     * json - json path in request body that points to session id
+     * path - path parameter name that identifies session id use "{}" to specify where sessionid is in path i.e.
+     * /foo/bar/{}/blah
      * session - session id value
      */
     @ConfigItem

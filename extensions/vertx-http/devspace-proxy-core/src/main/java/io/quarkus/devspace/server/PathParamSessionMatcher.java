@@ -1,16 +1,15 @@
 package io.quarkus.devspace.server;
 
-import io.vertx.core.http.HttpServerRequest;
-import io.vertx.ext.web.RoutingContext;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class PathParamSessionRouter implements RequestSessionRouter {
+import io.vertx.ext.web.RoutingContext;
+
+public class PathParamSessionMatcher implements RequestSessionMatcher {
     private final Pattern pattern;
 
-    public PathParamSessionRouter(String pathExpression) {
-        String regex = pathExpression.replace("<service>", "(?<service>[^/]+)");
+    public PathParamSessionMatcher(String pathExpression) {
+        String regex = pathExpression.replace("[]", "(?<service>[^/]+)");
         pattern = Pattern.compile(regex + ".*");
     }
 

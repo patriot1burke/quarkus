@@ -1,5 +1,6 @@
 package io.quarkus.devspace.server;
 
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
@@ -101,10 +102,11 @@ public class DevProxyServer {
         final Deque<Poller> awaitingPollers = new LinkedList<>();
         final Object pollLock = new Object();
 
+        final List<RequestSessionMatcher> matchers = new ArrayList<>();
+
         volatile boolean running = true;
         volatile long lastPoll;
         AtomicLong requestId = new AtomicLong(System.currentTimeMillis());
-
 
         ProxySession(ServiceProxy proxy, String sessionId, String who) {
             timerId = vertx.setPeriodic(POLL_TIMEOUT, this::timerCallback);
@@ -223,7 +225,8 @@ public class DevProxyServer {
         }
     }
 
-    public static final String CLIENT_API_PATH = "/_dev_proxy_client_";
+    public static final String API_PATH = "/_devspace/api";
+    public static final String CLIENT_API_PATH = "/_devspace/client";
     public static final String GLOBAL_PROXY_SESSION = "_devspace_global";
     public static final String SESSION_HEADER = "X-DevSpace-Session";
     public static final String HEADER_FORWARD_PREFIX = "X-DevSpace-Fwd-";
@@ -245,7 +248,6 @@ public class DevProxyServer {
         this.vertx = vertx;
         this.router = router;
         client = vertx.createHttpClient();
-        // API routes
         router.route().handler((context) -> {
             if (context.get("continue-sent") == null) {
                 String expect = context.request().getHeader(HttpHeaderNames.EXPECT);
@@ -256,6 +258,10 @@ public class DevProxyServer {
             }
             context.next();
         });
+        // API routes
+        router.route(API_PATH + "/cookie/set").method(HttpMethod.GET).handler(this::setCookieApi);
+        router.route(API_PATH + "/cookie/get").method(HttpMethod.GET).handler(this::getCookieApi);
+        router.route(API_PATH + "/cookie/remove").method(HttpMethod.GET).handler(this::removeCookieApi);
         // CLIENT API
         router.route(CLIENT_API_PATH + "/poll/session/:session").method(HttpMethod.POST).handler(this::pollNext);
         router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.POST).handler(this::clientConnect);
@@ -323,18 +329,58 @@ public class DevProxyServer {
         });
     }
 
+    public void setCookieApi(RoutingContext ctx) {
+        String session = ctx.queryParams().get("session");
+        if (session == null) {
+            ctx.response().setStatusCode(400).putHeader("Content-Type", "text/plain")
+                    .end("You must specify a session query param in url to set session");
+        } else {
+            ctx.response()
+                    .setStatusCode(200)
+                    .addCookie(Cookie.cookie(SESSION_HEADER, session).setPath("/"))
+                    .putHeader("Content-Type", "text/plain")
+                    .end("Session cookie set for session: " + session);
+        }
+    }
+
+    public void removeCookieApi(RoutingContext ctx) {
+        ctx.response()
+                .setStatusCode(200)
+                .addCookie(Cookie.cookie(SESSION_HEADER, "null").setPath("/").setMaxAge(0))
+                .putHeader("Content-Type", "text/plain")
+                .end("Session cookie removed");
+
+    }
+
+    public void getCookieApi(RoutingContext ctx) {
+        String sessionId = null;
+        Cookie cookie = ctx.request().getCookie(SESSION_HEADER);
+        if (cookie != null) {
+            sessionId = cookie.getValue();
+        } else {
+            sessionId = "NONE";
+        }
+        ctx.response()
+                .setStatusCode(200)
+                .putHeader("Content-Type", "text/plain")
+                .end("Session cookie: " + sessionId);
+    }
+
     public void proxy(RoutingContext ctx) {
         log.infov("*** entered proxy {0} {1}", ctx.request().method().toString(), ctx.request().uri());
-        // Get session id from header or cookie
-        String sessionId = ctx.request().getHeader(SESSION_HEADER);
-        if (sessionId == null) {
-            Cookie cookie = ctx.request().getCookie(SESSION_HEADER);
-            if (cookie != null) {
-                sessionId = cookie.getValue();
-            } else {
-                sessionId = GLOBAL_PROXY_SESSION;
+        String sessionId = null;
+
+        find: for (ProxySession session : service.sessions.values()) {
+            for (RequestSessionMatcher matcher : session.matchers) {
+                sessionId = matcher.match(ctx);
+                if (sessionId != null)
+                    break find;
             }
         }
+        if (sessionId == null) {
+            sessionId = GLOBAL_PROXY_SESSION;
+        }
+
         log.infov("Looking for session {0}", sessionId);
 
         ProxySession session = service.sessions.get(sessionId);
@@ -348,6 +394,7 @@ public class DevProxyServer {
     public void clientConnect(RoutingContext ctx) {
         // TODO: add security 401 protocol
 
+        log.info("Connect: " + ctx.request().absoluteURI());
         List<String> sessionQueryParam = ctx.queryParam("session");
         String sessionId = GLOBAL_PROXY_SESSION;
         if (!sessionQueryParam.isEmpty()) {
@@ -374,7 +421,20 @@ public class DevProxyServer {
 
                 }
             } else {
-                service.sessions.put(sessionId, new ProxySession(service, sessionId, who));
+                ProxySession newSession = new ProxySession(service, sessionId, who);
+                if (sessionId != GLOBAL_PROXY_SESSION) {
+                    ctx.queryParams().forEach((key, value) -> {
+                        if ("query".equals(key)) {
+                            newSession.matchers.add(new QueryParamSessionMatcher(value));
+                        } else if ("path".equals(key)) {
+                            newSession.matchers.add(new PathParamSessionMatcher(value));
+                        } else if ("header".equals(key)) {
+                            newSession.matchers.add(new PathParamSessionMatcher(value));
+                        }
+                    });
+                    newSession.matchers.add(new HeaderOrCookieSessionMatcher(SESSION_HEADER));
+                }
+                service.sessions.put(sessionId, newSession);
                 ctx.response().setStatusCode(204).putHeader(POLL_LINK, CLIENT_API_PATH + "/poll/session/" + sessionId)
                         .end();
             }
