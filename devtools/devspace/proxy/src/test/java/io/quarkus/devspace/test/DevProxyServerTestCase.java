@@ -39,7 +39,8 @@ public class DevProxyServerTestCase {
             return Map.of(
                     "service.host", "localhost",
                     "service.name", "my-service",
-                    "service.port", "9091"
+                    "service.port", "9091",
+                    "client.api.port", "8082"
             //,"quarkus.log.level", "DEBUG"
             );
         }
@@ -137,7 +138,7 @@ public class DevProxyServerTestCase {
     @Test
     public void testGlobalSession() throws Exception {
         DevProxyClient client = DevProxyClient.create(vertx)
-                .proxy("localhost", 8081, false)
+                .proxy("localhost", 8082, false)
                 .service("my-service", "localhost", 9092, false)
                 .whoami("bill")
                 .build();

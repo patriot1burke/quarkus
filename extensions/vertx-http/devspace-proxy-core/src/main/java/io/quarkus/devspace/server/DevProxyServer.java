@@ -12,13 +12,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.jboss.logging.Logger;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.quarkus.devspace.ProxyUtils;
 import io.vertx.core.MultiMap;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.Cookie;
 import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.streams.Pipe;
@@ -28,6 +31,26 @@ import io.vertx.httpproxy.Body;
 import io.vertx.httpproxy.HttpProxy;
 
 public class DevProxyServer {
+
+    public static AutoCloseable create(Vertx vertx, ServiceConfig config, int proxyPort, int clientApiPort) {
+        HttpServer proxy = vertx.createHttpServer();
+        HttpServer clientApi = vertx.createHttpServer();
+        DevProxyServer proxyServer = new DevProxyServer();
+        Router proxyRouter = Router.router(vertx);
+        Router clientApiRouter = Router.router(vertx);
+        proxyServer.init(vertx, proxyRouter, clientApiRouter, config);
+        ProxyUtils.await(1000, proxy.requestHandler(proxyRouter).listen(proxyPort));
+        ProxyUtils.await(1000, clientApi.requestHandler(clientApiRouter).listen(clientApiPort));
+        return new AutoCloseable() {
+
+            @Override
+            public void close() throws Exception {
+                ProxyUtils.await(1000, proxy.close());
+                ProxyUtils.await(1000, clientApi.close());
+            }
+        };
+    }
+
     public class Poller {
         final ProxySession session;
         final RoutingContext pollerCtx;
@@ -208,8 +231,15 @@ public class DevProxyServer {
     }
 
     public class ServiceProxy {
+        final HttpClient client;
+
         public ServiceProxy(ServiceConfig service) {
             this.config = service;
+            HttpClientOptions options = new HttpClientOptions();
+            if (service.isSsl()) {
+                options.setSsl(true).setTrustAll(true);
+            }
+            this.client = vertx.createHttpClient(options);
             this.proxy = HttpProxy.reverseProxy(client);
             proxy.origin(service.getPort(), service.getHost());
         }
@@ -241,14 +271,10 @@ public class DevProxyServer {
     protected static final Logger log = Logger.getLogger(DevProxyServer.class);
     protected ServiceProxy service;
     protected Vertx vertx;
-    protected Router router;
-    protected HttpClient client;
 
-    public void init(Vertx vertx, Router router, ServiceConfig config) {
+    public void init(Vertx vertx, Router proxyRouter, Router clientApiRouter, ServiceConfig config) {
         this.vertx = vertx;
-        this.router = router;
-        client = vertx.createHttpClient();
-        router.route().handler((context) -> {
+        proxyRouter.route().handler((context) -> {
             if (context.get("continue-sent") == null) {
                 String expect = context.request().getHeader(HttpHeaderNames.EXPECT);
                 if (expect != null && expect.equalsIgnoreCase("100-continue")) {
@@ -259,23 +285,24 @@ public class DevProxyServer {
             context.next();
         });
         // API routes
-        router.route(API_PATH + "/cookie/set").method(HttpMethod.GET).handler(this::setCookieApi);
-        router.route(API_PATH + "/cookie/get").method(HttpMethod.GET).handler(this::getCookieApi);
-        router.route(API_PATH + "/cookie/remove").method(HttpMethod.GET).handler(this::removeCookieApi);
+        proxyRouter.route(API_PATH + "/cookie/set").method(HttpMethod.GET).handler(this::setCookieApi);
+        proxyRouter.route(API_PATH + "/cookie/get").method(HttpMethod.GET).handler(this::getCookieApi);
+        proxyRouter.route(API_PATH + "/cookie/remove").method(HttpMethod.GET).handler(this::removeCookieApi);
+        proxyRouter.route().handler(this::proxy);
+
         // CLIENT API
-        router.route(CLIENT_API_PATH + "/poll/session/:session").method(HttpMethod.POST).handler(this::pollNext);
-        router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.POST).handler(this::clientConnect);
-        router.route(CLIENT_API_PATH + "/connect").method(HttpMethod.DELETE).handler(this::deleteClientConnection);
-        router.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
+        clientApiRouter.route(CLIENT_API_PATH + "/poll/session/:session").method(HttpMethod.POST).handler(this::pollNext);
+        clientApiRouter.route(CLIENT_API_PATH + "/connect").method(HttpMethod.POST).handler(this::clientConnect);
+        clientApiRouter.route(CLIENT_API_PATH + "/connect").method(HttpMethod.DELETE).handler(this::deleteClientConnection);
+        clientApiRouter.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
                 .method(HttpMethod.POST)
                 .handler(this::pushResponse);
-        router.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
+        clientApiRouter.route(CLIENT_API_PATH + "/push/response/session/:session/request/:request")
                 .method(HttpMethod.DELETE)
                 .handler(this::deletePushResponse);
-        router.route(CLIENT_API_PATH + "/*").handler(routingContext -> routingContext.fail(404));
+        clientApiRouter.route(CLIENT_API_PATH + "/*").handler(routingContext -> routingContext.fail(404));
 
         // proxy to deployed services
-        router.route().handler(this::proxy);
         service = new ServiceProxy(config);
     }
 

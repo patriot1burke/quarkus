@@ -11,6 +11,10 @@ cat src/main/kubernetes/service-template.yml | sed "s/SERVICE_SELECTOR/$proxy_de
 mv tmp.yml service.yml
 cat service.yml | sed "s/SERVICE_NAME/$service_name/g" > tmp.yml
 mv tmp.yml service.yml
+cat src/main/kubernetes/client-template.yml | sed "s/SERVICE_SELECTOR/$proxy_deployment_name/g" > tmp.yml
+mv tmp.yml client.yml
+cat client.yml | sed "s/SERVICE_NAME/$service_name/g" > tmp.yml
+mv tmp.yml client.yml
 cat src/main/kubernetes/deployment-template.yml | sed "s/PROXY_DEPLOYMENT_NAME/$proxy_deployment_name/g" > tmp.yml
 mv tmp.yml deployment.yml
 cat deployment.yml | sed "s/QUARKUS_VERSION/$quarkus_version/g" > tmp.yml

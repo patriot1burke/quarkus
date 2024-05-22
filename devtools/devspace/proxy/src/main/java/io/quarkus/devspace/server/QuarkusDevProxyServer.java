@@ -1,5 +1,8 @@
 package io.quarkus.devspace.server;
 
+import io.quarkus.devspace.ProxyUtils;
+import io.quarkus.runtime.Shutdown;
+import io.vertx.core.http.HttpServer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
@@ -8,17 +11,48 @@ import io.quarkus.runtime.StartupEvent;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 import org.eclipse.microprofile.config.inject.ConfigProperties;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import java.util.Optional;
 
 @ApplicationScoped
-public class QuarkusDevProxyServer extends DevProxyServer {
+public class QuarkusDevProxyServer {
 
     @Inject
-    @ConfigProperties
-    protected ProxyConfig config;
+    @ConfigProperty(name="service.name")
+    protected String serviceName;
 
-    public void start(@Observes StartupEvent start, Vertx vertx, Router router) {
-        this.vertx = vertx;
-        this.router = router;
-        init(vertx, router, new ServiceConfig(config.name, config.host, config.port));
+    @Inject
+    @ConfigProperty(name="service.host")
+    protected String serviceHost;
+
+    @Inject
+    @ConfigProperty(name="service.port")
+    protected int servicePort;
+
+    @Inject
+    @ConfigProperty(name="service.ssl", defaultValue = "false")
+    protected boolean serviceSsl;
+
+    @Inject
+    @ConfigProperty(name="client.api.port")
+    protected int clientApiPort;
+
+    protected DevProxyServer proxyServer;
+    private HttpServer clientApi;
+
+
+    public void start(@Observes StartupEvent start, Vertx vertx, Router proxyRouter) {
+        proxyServer = new DevProxyServer();
+        ServiceConfig config = new ServiceConfig(serviceName, serviceHost, servicePort, serviceSsl);
+        clientApi = vertx.createHttpServer();
+        Router clientApiRouter = Router.router(vertx);
+        proxyServer.init(vertx, proxyRouter, clientApiRouter, config);
+        clientApi.requestHandler(clientApiRouter).listen(clientApiPort);
+    }
+
+    @Shutdown
+    public void stop() {
+        clientApi.close();
     }
 }

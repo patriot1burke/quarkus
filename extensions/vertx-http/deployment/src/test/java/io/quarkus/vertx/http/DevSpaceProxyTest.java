@@ -76,7 +76,7 @@ public class DevSpaceProxyTest {
         proxyServer = new DevProxyServer();
         Router proxyRouter = Router.router(vertx);
         ServiceConfig config = new ServiceConfig("my-service", "localhost", SERVICE_PORT);
-        proxyServer.init(vertx, proxyRouter, config);
+        proxyServer.init(vertx, proxyRouter, proxyRouter, config);
         ProxyUtils.await(1000, proxy.requestHandler(proxyRouter).listen(PROXY_PORT));
     }
 

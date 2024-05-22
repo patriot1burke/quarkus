@@ -30,9 +30,10 @@ public class DevSpaceSessionProxyTest {
 
     public static final int SERVICE_PORT = 9091;
     public static final int PROXY_PORT = 9092;
+    public static final int CLIENT_API_PORT = 9093;
 
     private static final String APP_PROPS = "" +
-            "quarkus.http.devspace=http://localhost:9092?who=bill&session=john&path=/users/[]&query=user\n"
+            "quarkus.http.devspace=http://localhost:9093?who=bill&session=john&path=/users/[]&query=user\n"
             + "quarkus.http.devspace-delay-connect=true\n";
 
     @RegisterExtension
@@ -41,8 +42,7 @@ public class DevSpaceSessionProxyTest {
                     .addAsResource(new StringAsset(APP_PROPS), "application.properties")
                     .addClasses(DevSpaceSessionProxyTest.RouteProducer.class));
 
-    public static DevProxyServer proxyServer;
-    public static HttpServer proxy;
+    public static AutoCloseable proxy;
 
     static HttpServer myService;
 
@@ -74,21 +74,17 @@ public class DevSpaceSessionProxyTest {
             request.response().setStatusCode(200).putHeader("Content-Type", "text/plain").end("my-service");
         }).listen(SERVICE_PORT));
 
-        proxy = vertx.createHttpServer();
-        proxyServer = new DevProxyServer();
-        Router proxyRouter = Router.router(vertx);
         ServiceConfig config = new ServiceConfig("my-service", "localhost", SERVICE_PORT);
-        proxyServer.init(vertx, proxyRouter, config);
-        ProxyUtils.await(1000, proxy.requestHandler(proxyRouter).listen(PROXY_PORT));
+        proxy = DevProxyServer.create(vertx, config, PROXY_PORT, CLIENT_API_PORT);
     }
 
     @AfterAll
-    public static void after() {
+    public static void after() throws Exception {
         System.out.println(" -------    CLEANUP TEST ------");
         if (vertx != null) {
             ProxyUtils.await(1000, myService.close());
             System.out.println(" -------    Cleaned up my-service ------");
-            ProxyUtils.await(1000, proxy.close());
+            proxy.close();
             System.out.println(" -------    Cleaned up proxy ------");
             ProxyUtils.await(1000, vertx.close());
             System.out.println(" -------    Cleaned up test vertx ------");

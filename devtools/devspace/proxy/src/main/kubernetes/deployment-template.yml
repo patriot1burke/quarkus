@@ -24,10 +24,15 @@ spec:
               value: "SERVICE_PORT_VALUE"
             - name: SERVICE_SSL
               value: "SERVICE_SSL_VALUE"
+            - name: CLIENT_API_PORT
+              value: "8081"
           image: docker.io/io.quarkus/quarkus-devspace-proxy:QUARKUS_VERSION
           imagePullPolicy: IfNotPresent
           name: PROXY_DEPLOYMENT_NAME
           ports:
             - containerPort: 8080
-              name: http
+              name: proxy-http
+              protocol: TCP
+            - containerPort: 8081
+              name: client-http
               protocol: TCP
