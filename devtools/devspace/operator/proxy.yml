@@ -1,4 +1,4 @@
 apiVersion: "io.quarkus.devspace/v1"
-kind: DevspaceProxy
+kind: Devspace
 metadata:
   name: test-rest-service

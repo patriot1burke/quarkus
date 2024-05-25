@@ -7,4 +7,4 @@ import io.fabric8.kubernetes.model.annotation.Version;
 
 @Version("v1")
 @Group("io.quarkus.devspace")
-public class DevspaceProxy extends CustomResource<DevspaceProxySpec, DevspaceProxyStatus> implements Namespaced { }
+public class Devspace extends CustomResource<DevspaceSpec, DevspaceStatus> implements Namespaced { }

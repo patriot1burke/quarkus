@@ -3,8 +3,13 @@ package io.quarkus.devspace.operator;
 import java.util.HashMap;
 import java.util.Map;
 
-public class DevspaceProxyStatus {
-    private boolean initialized;
+public class DevspaceStatus {
+    public enum State {
+        CREATED,
+        ENABLED,
+        DISABLED
+    }
+    private State state = State.CREATED;
     private Map<String, String> oldSelectors = new HashMap<>();
 
     public Map<String, String> getOldSelectors() {
@@ -15,11 +20,11 @@ public class DevspaceProxyStatus {
         this.oldSelectors = oldSelectors;
     }
 
-    public boolean isInitialized() {
-        return initialized;
+    public State getState() {
+        return state;
     }
 
-    public void setInitialized(boolean initialized) {
-        this.initialized = initialized;
+    public void setState(State state) {
+        this.state = state;
     }
 }

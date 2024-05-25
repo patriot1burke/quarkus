@@ -15,19 +15,24 @@ import jakarta.inject.Inject;
 import java.util.Optional;
 
 @KubernetesDependent(resourceDiscriminator = OriginServiceDependent.OriginDescriminator.class)
-public class OriginServiceDependent extends CRUDKubernetesDependentResource<Service, DevspaceProxy> {
-    public static class OriginDescriminator implements ResourceDiscriminator<Service, DevspaceProxy> {
+public class OriginServiceDependent extends CRUDKubernetesDependentResource<Service, Devspace> {
+    public static class OriginDescriminator implements ResourceDiscriminator<Service, Devspace> {
         @Override
-        public Optional<Service> distinguish(Class<Service> resource, DevspaceProxy primary, Context<DevspaceProxy> context) {
-            InformerEventSource<Service, DevspaceProxy> ies =
-                    (InformerEventSource<Service, DevspaceProxy>) context
+        public Optional<Service> distinguish(Class<Service> resource, Devspace primary, Context<Devspace> context) {
+            InformerEventSource<Service, Devspace> ies =
+                    (InformerEventSource<Service, Devspace>) context
                             .eventSourceRetriever().getResourceEventSourceFor(Service.class);
 
-            return ies.get(new ResourceID("origin-" + primary.getMetadata().getName(),
+            return ies.get(new ResourceID(origin(primary),
                     primary.getMetadata().getNamespace()));        }
 
 
     }
+
+    public static String origin(Devspace primary) {
+        return primary.getMetadata().getName() + "-origin";
+    }
+
     public OriginServiceDependent() {
         super(Service.class);
     }
@@ -36,12 +41,12 @@ public class OriginServiceDependent extends CRUDKubernetesDependentResource<Serv
     KubernetesClient client;
 
     @Override
-    protected Service desired(DevspaceProxy primary, Context<DevspaceProxy> context) {
+    protected Service desired(Devspace primary, Context<Devspace> context) {
         String serviceName = primary.getMetadata().getName();
-        String name = "origin-" + serviceName;
+        String name = origin(primary);
         Service service = client.services().withName(serviceName).get();
         return new ServiceBuilder()
-                .withMetadata(DevspaceProxyReconciler.createMetadata(primary, name))
+                .withMetadata(DevspaceReconciler.createMetadata(primary, name))
                 .withNewSpec()
                 .addNewPort()
                 .withName("http")
