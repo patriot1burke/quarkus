@@ -6,8 +6,6 @@ import static io.quarkus.vertx.http.deployment.RouteBuildItem.RouteType.FRAMEWOR
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -67,8 +65,6 @@ import io.quarkus.vertx.http.runtime.VertxConfigBuilder;
 import io.quarkus.vertx.http.runtime.VertxHttpRecorder;
 import io.quarkus.vertx.http.runtime.attribute.ExchangeAttributeBuilder;
 import io.quarkus.vertx.http.runtime.cors.CORSRecorder;
-import io.quarkus.vertx.http.runtime.devmode.DevSpaceProxyRecorder;
-import io.quarkus.vertx.http.runtime.devmode.DevspaceConfig;
 import io.quarkus.vertx.http.runtime.filters.Filter;
 import io.quarkus.vertx.http.runtime.filters.GracefulShutdownFilter;
 import io.quarkus.vertx.http.runtime.management.ManagementInterfaceBuildTimeConfig;
@@ -418,8 +414,7 @@ class VertxHttpProcessor {
             EventLoopCountBuildItem eventLoopCount,
             List<WebsocketSubProtocolsBuildItem> websocketSubProtocols,
             Capabilities capabilities,
-            VertxHttpRecorder recorder,
-            DevSpaceProxyRecorder proxy) throws IOException {
+            VertxHttpRecorder recorder) throws IOException {
         boolean startVirtual = requireVirtual.isPresent() || httpBuildTimeConfig.virtual;
         if (startVirtual) {
             reflectiveClass
@@ -434,52 +429,6 @@ class VertxHttpProcessor {
                 websocketSubProtocols.stream().map(bi -> bi.getWebsocketSubProtocols())
                         .collect(Collectors.toList()),
                 launchMode.isAuxiliaryApplication(), !capabilities.isPresent(Capability.VERTX_WEBSOCKETS));
-        if (httpBuildTimeConfig.devspace.isPresent() && startVirtual) {
-            URI uri = null;
-            try {
-                uri = new URI(httpBuildTimeConfig.devspace.get());
-            } catch (URISyntaxException e) {
-                throw new RuntimeException("Bad URI value for quarkus.http.devspace: '" + httpBuildTimeConfig.devspace.get());
-            }
-            DevspaceConfig devspace = new DevspaceConfig();
-            devspace.host = uri.getHost();
-            devspace.ssl = uri.getScheme().equalsIgnoreCase("https");
-            devspace.port = uri.getPort() == -1 ? (devspace.ssl ? 443 : 80) : uri.getPort();
-
-            boolean needSession = false;
-            for (String pair : uri.getQuery().split("&")) {
-                int idx = pair.indexOf("=");
-                String key = pair.substring(0, idx);
-                String value = pair.substring(idx + 1);
-                if ("session".equals(key)) {
-                    devspace.session = value;
-                } else if ("who".equals(key)) {
-                    devspace.who = value;
-                } else if ("query".equals(key)) {
-                    if (devspace.queries == null)
-                        devspace.queries = new ArrayList<>();
-                    devspace.queries.add(value);
-                    needSession = true;
-                } else if ("path".equals(key)) {
-                    if (devspace.paths == null)
-                        devspace.paths = new ArrayList<>();
-                    devspace.paths.add(value);
-                    needSession = true;
-                } else if ("header".equals(key)) {
-                    if (devspace.headers == null)
-                        devspace.headers = new ArrayList<>();
-                    devspace.headers.add(value);
-                    needSession = true;
-                }
-            }
-            if (devspace.who == null) {
-                throw new RuntimeException("quarkus.http.devspace is missing who parameter");
-            }
-            if (needSession && devspace.session == null) {
-                throw new RuntimeException("quarkus.http.devspace uri is missing session parameter");
-            }
-            proxy.init(vertx.getVertx(), shutdown, devspace, httpBuildTimeConfig.devspaceDelayConnect);
-        }
     }
 
     @BuildStep
