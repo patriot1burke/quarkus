@@ -18,10 +18,6 @@ public class DevspaceDeploymentDependent extends CRUDKubernetesDependentResource
     //@ConfigProperty(name="quarkus.application.version")
     String quarkusVersion = "999-SNAPSHOT";
 
-    private static String devspaceDeploymentName(Devspace primary) {
-        return primary.getMetadata().getName() + "-devspace";
-    }
-
     public static String devspaceDeployment(Devspace primary) {
         return primary.getMetadata().getName() + "-proxy";
     }
