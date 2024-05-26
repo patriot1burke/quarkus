@@ -9,6 +9,7 @@ import io.javaoperatorsdk.operator.processing.dependent.kubernetes.CRUDKubernete
 import io.javaoperatorsdk.operator.processing.dependent.kubernetes.KubernetesDependent;
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
 import io.javaoperatorsdk.operator.processing.event.source.informer.InformerEventSource;
+import org.jboss.logging.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -27,6 +28,7 @@ public class DevspaceServiceDependent extends CRUDKubernetesDependentResource<Se
 
 
     }
+    protected static final Logger log = Logger.getLogger(DevspaceServiceDependent.class);
 
     private static String devspaceServiceName(Devspace primary) {
         return primary.getMetadata().getName() + "-devspace";
@@ -38,7 +40,7 @@ public class DevspaceServiceDependent extends CRUDKubernetesDependentResource<Se
 
     @Override
     protected Service desired(Devspace primary, Context<Devspace> context) {
-        String serviceName = primary.getMetadata().getName();
+        log.info("enter desired");
         String name = devspaceServiceName(primary);
         return new ServiceBuilder()
                 .withMetadata(DevspaceReconciler.createMetadata(primary, name))

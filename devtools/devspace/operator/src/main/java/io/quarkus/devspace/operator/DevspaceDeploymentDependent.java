@@ -24,6 +24,7 @@ public class DevspaceDeploymentDependent extends CRUDKubernetesDependentResource
 
     @Override
     protected Deployment desired(Devspace primary, Context<Devspace> context) {
+        log.info("enter desired");
         String serviceName = primary.getMetadata().getName();
         String name = devspaceDeployment(primary);
 

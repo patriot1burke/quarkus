@@ -11,7 +11,9 @@ import io.javaoperatorsdk.operator.processing.dependent.kubernetes.KubernetesDep
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
 import io.javaoperatorsdk.operator.processing.event.source.informer.InformerEventSource;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
+import java.util.Map;
 import java.util.Optional;
 
 @KubernetesDependent(resourceDiscriminator = OriginServiceDependent.OriginDescriminator.class)
@@ -28,6 +30,7 @@ public class OriginServiceDependent extends CRUDKubernetesDependentResource<Serv
 
 
     }
+    protected static final Logger log = Logger.getLogger(OriginServiceDependent.class);
 
     public static String origin(Devspace primary) {
         return primary.getMetadata().getName() + "-origin";
@@ -42,9 +45,15 @@ public class OriginServiceDependent extends CRUDKubernetesDependentResource<Serv
 
     @Override
     protected Service desired(Devspace primary, Context<Devspace> context) {
+        log.info("enter desired");
         String serviceName = primary.getMetadata().getName();
         String name = origin(primary);
-        Service service = client.services().withName(serviceName).get();
+        Map<String, String> selector = null;
+        if (primary.getStatus() == null || primary.getStatus().getOldSelectors() == null) {
+            selector = client.services().withName(serviceName).get().getSpec().getSelector();
+        } else {
+            selector = primary.getStatus().getOldSelectors();
+        }
         return new ServiceBuilder()
                 .withMetadata(DevspaceReconciler.createMetadata(primary, name))
                 .withNewSpec()
@@ -54,7 +63,7 @@ public class OriginServiceDependent extends CRUDKubernetesDependentResource<Serv
                 .withProtocol("TCP")
                 .withTargetPort(new IntOrString(8080))
                 .endPort()
-                .withSelector(service.getSpec().getSelector())
+                .withSelector(selector)
                 .withType("ClusterIP")
                 .endSpec().build();
     }

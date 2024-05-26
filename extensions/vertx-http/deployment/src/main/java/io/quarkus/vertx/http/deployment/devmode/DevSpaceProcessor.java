@@ -15,7 +15,7 @@ public class DevSpaceProcessor {
     public RequireVirtualHttpBuildItem requestVirtualHttp(HttpBuildTimeConfig config) throws BuildException {
 
         if (config.devspace.isPresent()) {
-            return RequireVirtualHttpBuildItem.ALWAYS_VIRTUAL;
+            return RequireVirtualHttpBuildItem.MARKER;
         } else {
             return null;
         }

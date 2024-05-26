@@ -26,6 +26,7 @@ import org.jboss.logging.Logger;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
 
 import static io.javaoperatorsdk.operator.api.reconciler.Constants.WATCH_CURRENT_NAMESPACE;
@@ -44,37 +45,39 @@ public class DevspaceReconciler implements Reconciler<Devspace>, Cleaner<Devspac
 
     @Override
     public UpdateControl<Devspace> reconcile(Devspace devspace, Context<Devspace> context) {
-        log.debug("reconcile");
         final var name = devspace.getMetadata().getName();
-        ServiceResource<Service> serviceResource = client.services().withName(name);
-        Service service = serviceResource.get();
-
+        log.infov("reconcile {0}", name);
         // retrieve the workflow reconciliation result and re-schedule if we have dependents that are not yet ready
         return context.managedDependentResourceContext().getWorkflowReconcileResult()
                 .map(wrs -> {
                     if (wrs.allDependentResourcesReady()) {
-                        Map<String, String> oldSelectors = new HashMap<>();
-                        oldSelectors.putAll(service.getSpec().getSelector());
-                        String proxyDeploymentName = DevspaceDeploymentDependent.devspaceDeployment(devspace);
+                        ServiceResource<Service> serviceResource = client.services().withName(name);
+                        Service service = serviceResource.get();
+                        if (devspace.getStatus() == null) {
+                            log.info("Updating status to reflect old selectors");
+                            Map<String, String> oldSelectors = new HashMap<>();
+                            oldSelectors.putAll(service.getSpec().getSelector());
+                            DevspaceStatus status = new DevspaceStatus();
+                            status.setOldSelectors(oldSelectors);
+                            devspace.setStatus(status);
+                            String proxyDeploymentName = DevspaceDeploymentDependent.devspaceDeployment(devspace);
+                            UnaryOperator<Service> edit = (s) -> {
+                                ServiceBuilder builder = new ServiceBuilder(s);
+                                ServiceFluent<ServiceBuilder>.SpecNested<ServiceBuilder> spec = builder.editSpec();
+                                spec.getSelector().clear();
+                                spec.getSelector().put("run", proxyDeploymentName);
+                                return spec.endSpec().build();
 
-                        UnaryOperator<Service> edit = (s) -> {
-                            ServiceBuilder builder = new ServiceBuilder(s);
-                            ServiceFluent<ServiceBuilder>.SpecNested<ServiceBuilder> spec = builder.editSpec();
-                            spec.getSelector().clear();
-                            spec.getSelector().put("run", proxyDeploymentName);
-                            return spec.endSpec().build();
-
-                        };
-                        serviceResource.edit(edit);
-                        DevspaceStatus status = new DevspaceStatus();
-                        status.setOldSelectors(oldSelectors);
-                        status.setState(DevspaceStatus.State.ENABLED);
-                        devspace.setStatus(status);
-                        return UpdateControl.updateStatus(devspace);
+                            };
+                            serviceResource.edit(edit);
+                            return UpdateControl.updateStatus(devspace);
+                        } else {
+                            return UpdateControl.<Devspace>noUpdate();
+                        }
                     } else {
                         final var duration = Duration.ofSeconds(1);
                         log.infov("App {0} is not ready yet, rescheduling reconciliation after {1}s", name, duration.toSeconds());
-                        return UpdateControl.<Devspace> noUpdate().rescheduleAfter(duration);
+                        return UpdateControl.<Devspace>noUpdate().rescheduleAfter(duration);
                     }
                 }).orElseThrow();
     }
