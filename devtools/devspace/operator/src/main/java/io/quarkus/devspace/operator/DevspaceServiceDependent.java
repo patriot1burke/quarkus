@@ -49,7 +49,7 @@ public class DevspaceServiceDependent extends CRUDKubernetesDependentResource<Se
                 .withProtocol("TCP")
                 .withTargetPort(new IntOrString(8081))
                 .endPort()
-                .withSelector(Map.of("run", "proxy-" + serviceName))
+                .withSelector(Map.of("run", DevspaceDeploymentDependent.devspaceDeployment(primary)))
                 .withType("NodePort")
                 .endSpec().build();
     }
